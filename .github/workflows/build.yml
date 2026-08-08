@@ -1,0 +1,234 @@
+name: rasterm
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rasterm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    name: MSVC x64 ${{ matrix.configuration }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure rasterm
+        run: >-
+          cmake -S . -B build/ci -A x64
+          -DRASTERM_BUILD_TESTS=ON
+          -DRASTERM_BUILD_EXAMPLES=ON
+          -DRASTERM_BUILD_BENCHMARKS=ON
+          -DRASTERM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build and Test rasterm
+        run: |
+          cmake --build build/ci --config ${{ matrix.configuration }} --parallel
+          ctest --test-dir build/ci -C ${{ matrix.configuration }} --output-on-failure
+
+      - name: Smoke Test Benchmark Corpus
+        if: matrix.configuration == 'Release'
+        shell: pwsh
+        run: |
+          $env:RASTERM_BENCH_ITERATIONS = '5'
+          & build/ci/Release/rasterm-encoder-benchmark.exe | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify Installed C and C++ Consumers
+        shell: pwsh
+        run: |
+          cmake --install build/ci --config ${{ matrix.configuration }} --prefix build/install
+          cmake -DROOT="$pwd/build/install" -DINSTALL_TREE=ON -P cmake/VerifyReleaseContents.cmake
+          cmake -S validation/tests/consumer -B build/consumer -A x64 -DCMAKE_PREFIX_PATH="$pwd/build/install"
+          cmake --build build/consumer --config ${{ matrix.configuration }} --parallel
+          & "build/consumer/${{ matrix.configuration }}/rasterm-consumer.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake -S validation/tests/c_consumer -B build/c-consumer -A x64 -DCMAKE_PREFIX_PATH="$pwd/build/install"
+          cmake --build build/c-consumer --config ${{ matrix.configuration }} --parallel
+          & "build/c-consumer/${{ matrix.configuration }}/rasterm-c-consumer.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package rasterm
+        if: matrix.configuration == 'Release'
+        shell: pwsh
+        run: |
+          $projectFile = Get-Content CMakeLists.txt -Raw
+          if ($projectFile -notmatch 'project\(rasterm VERSION (\d+\.\d+\.\d+)') {
+            throw 'Could not read the rasterm version from CMakeLists.txt.'
+          }
+          $version = $Matches[1]
+
+          cpack --config build/ci/CPackConfig.cmake -C Release -G ZIP
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $archives = @(Get-ChildItem -Filter 'rasterm-*.zip')
+          if ($archives.Count -ne 1) {
+            throw "Expected one CPack archive, found $($archives.Count)."
+          }
+          $expectedName = "rasterm-$version.zip"
+          if ($archives[0].Name -ne $expectedName) {
+            Move-Item -LiteralPath $archives[0].FullName -Destination $expectedName
+          }
+
+      - name: Upload rasterm Package
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rasterm-msvc-x64
+          path: rasterm-*.zip
+          if-no-files-found: error
+
+  windows-clang-cl:
+    name: clang-cl x64 Release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure rasterm
+        run: >-
+          cmake -S . -B build/clang-cl -A x64 -T ClangCL
+          -DRASTERM_BUILD_TESTS=ON
+          -DRASTERM_BUILD_EXAMPLES=ON
+          -DRASTERM_BUILD_BENCHMARKS=ON
+          -DRASTERM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build and Test rasterm
+        run: |
+          cmake --build build/clang-cl --config Release --parallel
+          ctest --test-dir build/clang-cl -C Release --output-on-failure
+
+      - name: Smoke Test Benchmark Corpus
+        shell: pwsh
+        run: |
+          $env:RASTERM_BENCH_ITERATIONS = '5'
+          & build/clang-cl/Release/rasterm-encoder-benchmark.exe | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  windows-mingw64:
+    name: MinGW64 GCC Release
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+
+      - name: Build and Test rasterm
+        run: |
+          cmake -S . -B build/mingw -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DRASTERM_BUILD_TESTS=ON \
+            -DRASTERM_BUILD_EXAMPLES=ON \
+            -DRASTERM_BUILD_BENCHMARKS=ON \
+            -DRASTERM_WARNINGS_AS_ERRORS=ON
+          cmake --build build/mingw --parallel
+          ctest --test-dir build/mingw --output-on-failure
+          RASTERM_BENCH_ITERATIONS=5 ./build/mingw/rasterm-encoder-benchmark.exe >/dev/null
+          cmake --install build/mingw --prefix build/install
+          cmake -DROOT="$PWD/build/install" -DINSTALL_TREE=ON -P cmake/VerifyReleaseContents.cmake
+
+      - name: Verify Installed pkg-config Consumers
+        run: |
+          export PKG_CONFIG_PATH="$PWD/build/install/lib/pkgconfig"
+          pkg-config --libs rasterm
+          cmake -S validation/tests/pkgconfig -B build/pkg-consumers -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/pkg-consumers --parallel
+          ./build/pkg-consumers/rasterm-pkgconfig-c.exe
+          ./build/pkg-consumers/rasterm-pkgconfig-cpp.exe
+          dependencies="$(objdump -p build/pkg-consumers/rasterm-pkgconfig-cpp.exe)"
+          printf '%s\n' "$dependencies" | grep -i "DLL Name" || true
+          if [[ "$dependencies" == *"libstdc++-6.dll"* ]]; then
+            echo "pkg-config consumer unexpectedly depends on shared libstdc++" >&2
+            exit 1
+          fi
+          if [[ "$dependencies" != *"libwinpthread-1.dll"* ]]; then
+            echo "pkg-config consumer is missing the host-compatible winpthread runtime" >&2
+            exit 1
+          fi
+
+  release-master:
+    name: Publish rasterm Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [windows-x64, windows-clang-cl, windows-mingw64]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Verified rasterm Package
+        uses: actions/download-artifact@v4
+        with:
+          name: rasterm-msvc-x64
+          path: release
+
+      - name: Verify Release Payload
+        id: package
+        shell: pwsh
+        run: |
+          $archives = @(Get-ChildItem release -Filter 'rasterm-*.zip')
+          if ($archives.Count -ne 1) {
+            throw "Expected exactly one rasterm core archive, found $($archives.Count)."
+          }
+
+          $entries = @(tar -tf $archives[0].FullName)
+          $unexpected = @($entries | Where-Object {
+            $_ -notmatch '^(include(?:/rasterm(?:/.*)?)?|lib(?:/rasterm\.lib)?|share(?:/rasterm(?:/(?:LICENSE|NOTICE|THIRD_PARTY_NOTICES\.md))?)?)/?$'
+          })
+          if ($unexpected.Count -ne 0) {
+            throw "Unexpected release entries: $($unexpected -join ', ')"
+          }
+          if ($entries -notcontains 'lib/rasterm.lib') {
+            throw 'Release archive is missing lib/rasterm.lib.'
+          }
+          $version = $archives[0].BaseName -replace '^rasterm-', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Invalid release version derived from archive: $version"
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Publish Versioned Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RASTERM_RELEASE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          $tag = $env:RASTERM_RELEASE_VERSION
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh api --method PATCH "/repos/$env:GITHUB_REPOSITORY/git/refs/tags/$tag" `
+              -f sha="$env:GITHUB_SHA" -F force=true | Out-Null
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            gh release create $tag `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:GITHUB_SHA `
+              --title "rasterm $tag" `
+              --notes 'Automated rasterm build from the latest validated master commit.'
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          gh release upload $tag release/*.zip `
+            --repo $env:GITHUB_REPOSITORY `
+            --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
