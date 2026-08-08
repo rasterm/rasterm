@@ -1,0 +1,18 @@
+set(RASTERM_CORE_SOURCES
+    src/backend/SixelBackend.cpp
+    src/capi/rasterm_c.cpp
+    src/engine/Engine.cpp
+    src/engine/Presenter.cpp
+    src/diagnostics/DiagnosticReporter.cpp
+    src/color/ColorConverter.cpp
+    src/damage/DamageTracker.cpp
+    src/encoder/SixelEncoder.cpp
+    src/encoder/SixelPalette.cpp
+    src/encoder/SixelSimdAvx2.cpp
+    src/encoder/SixelWriter.cpp
+    src/render/Renderer.cpp
+    src/output/StdoutSink.cpp
+    src/output/TerminalRenderer.cpp
+    src/platform/windows/ConsoleSession.cpp
+    src/platform/windows/TerminalOwner.cpp
+)

@@ -1,0 +1,9 @@
+prefix=${pcfiledir}/../..
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+Name: rasterm
+Description: raster graphics engine for Windows Terminal using SIXEL
+Version: @PROJECT_VERSION@
+# archive selection is order independent when consumed through CMake's pkgconfig target.
+Libs: -L${libdir} -lrasterm -l:libstdc++.a -lwinpthread
+Cflags: -I${includedir}
