@@ -80,7 +80,7 @@ docs/internal/          engineering/integration material
 - [Compatibility and Versioning](docs/COMPATIBILITY.md)
 - [Terminal Compatibility](docs/TERMINAL_COMPATIBILITY.md)
 - [Color Behavior and Limitations](docs/COLOR.md)
-- [Documentation index](docs/DOCS.md)
+- [Documentation Index](docs/DOCS.md)
 
 ## 1.0 Limitations
 
