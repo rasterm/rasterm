@@ -143,8 +143,17 @@ int main()
     if (!renderer.render(frame).rendered) return 15;
     if (std::string_view(sink.bytes).substr(dirtyStart).find("\x1b[3;3H") ==
         std::string_view::npos) return 16;
+
+    const rasterm::DamageRect unalignedDamage{ 15, 27, 1, 1 };
+    frame.metadata.damage = { &unalignedDamage, 1, true };
+    const std::size_t unalignedStart = sink.bytes.size();
+    if (!renderer.render(frame).rendered) return 17;
+    const auto alignedPatch = rasterm::test::MicrosoftSixelHarness{}.parse(
+        std::string_view(sink.bytes).substr(unalignedStart));
+    if (!alignedPatch.complete || alignedPatch.width != 7 || alignedPatch.height != 13) return 18;
+
     renderer.updateCellPixels({ 14, 13 });
     renderer.reset();
-    if (!renderer.render(frame).rendered) return 17;
+    if (!renderer.render(frame).rendered) return 19;
     return 0;
 }

@@ -47,7 +47,7 @@ for the terminal to finish drawing.
 | `RgbColor` | Simple struct holding 8-bit red, green, and blue values. |
 | `FrameMetadata` | Metadata values holding a borrowed `DamageView`. Frame IDs and timestamps are preserved as is without interpretation. |
 | `DamageRect` | Pixel bounds for updated regions inside a frame. Checks prevent integer overflow. |
-| `DamageView` | Borrowed list of damage rectangles. Set `supplied=false` to let rasterm compute diffs automatically, set `supplied=true` with a count of `0` to indicate nothing changed. |
+| `DamageView` | Borrowed list of pixel damage rectangles. Set `supplied=false` to let rasterm compute diffs automatically, set `supplied=true` with a count of `0` to indicate nothing changed. Supplied rectangles are expanded to terminal cell boundaries during presentation so partial updates remain spatially stable. |
 | `OwnedFrame` | Owns its packed pixel buffer and damage rect list. `view()` returns a borrowed view. |
 | `OwnedIndexedFrame` | Owns its index buffer, palette, and damage rects. `view()` returns a borrowed view. |
 | `SharedFrameView` | Borrowed packed view tied to a shared lifetime token (`std::shared_ptr`). |

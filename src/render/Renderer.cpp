@@ -40,6 +40,20 @@ private:
     bool finished = false;
 };
 
+DamageRegion alignToTerminalCells(const DamageRegion region, const int frameWidth,
+                                  const int frameHeight, const TerminalCellPixels cells) noexcept
+{
+    const int x = (region.x / cells.cellWidth) * cells.cellWidth;
+    const int y = (region.y / cells.cellHeight) * cells.cellHeight;
+    const auto right = static_cast<std::int64_t>(region.x) + region.width;
+    const auto bottom = static_cast<std::int64_t>(region.y) + region.height;
+    const auto alignedRight = ((right + cells.cellWidth - 1) / cells.cellWidth) * cells.cellWidth;
+    const auto alignedBottom = ((bottom + cells.cellHeight - 1) / cells.cellHeight) * cells.cellHeight;
+    const int clippedRight = static_cast<int>(std::min<std::int64_t>(frameWidth, alignedRight));
+    const int clippedBottom = static_cast<int>(std::min<std::int64_t>(frameHeight, alignedBottom));
+    return { x, y, clippedRight - x, clippedBottom - y };
+}
+
 }
 
 Renderer::Renderer(OutputSink& output, RendererOptions options) :
@@ -144,8 +158,14 @@ RenderResult Renderer::renderFrame(const Frame& frame)
     DamageResult difference;
     if (frame.metadata.damage.supplied) {
         damage.update(frame);
-        const auto regions = std::span<const DamageRegion>(
-            frame.metadata.damage.rectangles, frame.metadata.damage.count);
+        suppliedDamage.clear();
+        suppliedDamage.reserve(frame.metadata.damage.count);
+        for (std::size_t index = 0; index < frame.metadata.damage.count; ++index) {
+            suppliedDamage.push_back(alignToTerminalCells(
+                frame.metadata.damage.rectangles[index], frame.width, frame.height,
+                options.cellPixels));
+        }
+        const auto regions = std::span<const DamageRegion>(suppliedDamage);
         const bool coversFrame = dimensionsChanged ||
             (regions.size() == 1 && regions[0].x == 0 && regions[0].y == 0 &&
              regions[0].width == frame.width && regions[0].height == frame.height);

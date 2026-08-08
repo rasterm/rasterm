@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace rasterm {
 
@@ -59,6 +60,7 @@ private:
     TerminalRenderer terminal;
     std::unique_ptr<GraphicsBackend> backend;
     DamageTracker damage;
+    std::vector<DamageRegion> suppliedDamage;
     int previousWidth = 0;
     int previousHeight = 0;
 };
