@@ -4,6 +4,9 @@ rasterm lets C and C++ programs draw real pixel frames in Windows Terminal. Give
 packed or indexed framebuffer and it handles SIXEL encoding, terminal setup, frame
 scheduling, and cleanup for you.
 
+https://github.com/user-attachments/assets/1e39653c-9c40-4073-88be-a63bd653373f
+
+
 ```text
 Application -> FrameView -> Engine/Presenter -> private backend -> OutputSink
 ```
@@ -64,8 +67,6 @@ include/rasterm/        public C++ and C API
 src/                    private engine implementation
 apps/examples/          compiled minimal consumers
 apps/rPlayer/           media application
-apps/SimpleNES/         software framebuffer emulator integration
-apps/retroarch/         large host integration snapshot
 validation/tests/       correctness, ABI, consumer, stress, and fuzz validation
 validation/benchmarks/  deterministic performance corpus and baselines
 docs/                   public documentation
