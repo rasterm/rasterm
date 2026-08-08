@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{A5A4DE86-BC1A-4F03-B945-46C67AC10265}</ProjectGuid>
+    <RootNamespace>rasterm</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <TargetName>rasterm</TargetName>
+    <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\lib\</OutDir>
+    <IntDir>$(SolutionDir)build\$(Platform)\int\$(Configuration)\rasterm\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Debug'">MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreadedDLL</RuntimeLibrary>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="src\backend\GraphicsBackend.hpp" />
+    <ClInclude Include="src\backend\SixelBackend.hpp" />
+    <ClInclude Include="include\rasterm\capi.h" />
+    <ClInclude Include="include\rasterm\Buffer.hpp" />
+    <ClInclude Include="include\rasterm\Color.hpp" />
+    <ClInclude Include="include\rasterm\Config.hpp" />
+    <ClInclude Include="include\rasterm\Capabilities.hpp" />
+    <ClInclude Include="include\rasterm\Diagnostics.hpp" />
+    <ClInclude Include="include\rasterm\Damage.hpp" />
+    <ClInclude Include="include\rasterm\Engine.hpp" />
+    <ClInclude Include="include\rasterm\Error.hpp" />
+    <ClInclude Include="include\rasterm\Events.hpp" />
+    <ClInclude Include="include\rasterm\Frame.hpp" />
+    <ClInclude Include="include\rasterm\IndexedFrame.hpp" />
+    <ClInclude Include="include\rasterm\Geometry.hpp" />
+    <ClInclude Include="include\rasterm\Metadata.hpp" />
+    <ClInclude Include="include\rasterm\OutputSink.hpp" />
+    <ClInclude Include="include\rasterm\PixelFormat.hpp" />
+    <ClInclude Include="include\rasterm\Presenter.hpp" />
+    <ClInclude Include="include\rasterm\rasterm.hpp" />
+    <ClInclude Include="include\rasterm\Statistics.hpp" />
+    <ClInclude Include="include\rasterm\Scaling.hpp" />
+    <ClInclude Include="include\rasterm\Version.hpp" />
+    <ClInclude Include="src\diagnostics\DiagnosticReporter.hpp" />
+    <ClInclude Include="src\color\ColorConverter.hpp" />
+    <ClInclude Include="src\damage\DamageRegion.hpp" />
+    <ClInclude Include="src\damage\DamageTracker.hpp" />
+    <ClInclude Include="src\encoder\SixelEncoder.hpp" />
+    <ClInclude Include="src\encoder\SixelPalette.hpp" />
+    <ClInclude Include="src\encoder\SixelSimd.hpp" />
+    <ClInclude Include="src\encoder\SixelWriter.hpp" />
+    <ClInclude Include="src\render\Renderer.hpp" />
+    <ClInclude Include="src\output\StdoutSink.hpp" />
+    <ClInclude Include="src\output\TerminalRenderer.hpp" />
+    <ClInclude Include="src\platform\windows\ConsoleSession.hpp" />
+    <ClInclude Include="src\platform\windows\TerminalOwner.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\backend\SixelBackend.cpp" />
+    <ClCompile Include="src\capi\rasterm_c.cpp" />
+    <ClCompile Include="src\color\ColorConverter.cpp" />
+    <ClCompile Include="src\engine\Engine.cpp" />
+    <ClCompile Include="src\engine\Presenter.cpp" />
+    <ClCompile Include="src\diagnostics\DiagnosticReporter.cpp" />
+    <ClCompile Include="src\damage\DamageTracker.cpp" />
+    <ClCompile Include="src\encoder\SixelEncoder.cpp" />
+    <ClCompile Include="src\encoder\SixelPalette.cpp" />
+    <ClCompile Include="src\encoder\SixelSimdAvx2.cpp">
+      <AdditionalOptions>/arch:AVX2 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="src\encoder\SixelWriter.cpp" />
+    <ClCompile Include="src\render\Renderer.cpp" />
+    <ClCompile Include="src\output\StdoutSink.cpp" />
+    <ClCompile Include="src\output\TerminalRenderer.cpp" />
+    <ClCompile Include="src\platform\windows\ConsoleSession.cpp" />
+    <ClCompile Include="src\platform\windows\TerminalOwner.cpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>
