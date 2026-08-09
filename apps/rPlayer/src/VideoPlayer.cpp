@@ -58,7 +58,7 @@ bool playVideoFile(const std::string& path)
 
     double fps = capture.get(cv::CAP_PROP_FPS);
     if (fps <= 0.0 || std::isnan(fps)) {
-        fps = 60.0;
+        fps = 30.0;
     }
     const ColorMetadata sourceColor = probeVideoColor(path);
     const ColorMetadata pixelColor = decodedRgbColor(sourceColor);
