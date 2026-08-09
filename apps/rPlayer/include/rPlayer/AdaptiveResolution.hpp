@@ -9,10 +9,10 @@ struct AdaptiveResolutionOptions {
     double initialScale = 0.70;
     double minimumScale = 0.30;
     double maximumScale = 1.00;
-    int warmupFrames = 60;
+    int warmupFrames = 30;
     int downscaleFrames = 8;
-    int upscaleFrames = 120;
-    int resizeCooldownFrames = 120;
+    int upscaleFrames = 60;
+    int resizeCooldownFrames = 60;
 };
 
 [[nodiscard]] AdaptiveResolutionOptions fixedResolutionProfile(double scale) noexcept;
