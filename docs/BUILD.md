@@ -1,7 +1,7 @@
 # Build and Installation
 
 Run these commands from the rasterm repository root in PowerShell. rasterm 1.1 supports
-Windows x64 and C++20. C++ consumers use the static library language bindings can use
+Windows x64 and C++20. C++ consumers use the static library; language bindings can use
 the optional shared C ABI. You need Visual Studio 2022 v143
 with the Desktop development with C++ workload, CMake 3.24+, and Windows Terminal 1.22+
 (1.23+ recommended).
@@ -9,6 +9,22 @@ with the Desktop development with C++ workload, CMake 3.24+, and Windows Termina
 ## rasterm Core
 
 The library has no third party dependency:
+
+```powershell
+./scripts/build-rasterm.ps1
+```
+
+```powershell
+.\scripts\build-rasterm.ps1 -Configuration Debug
+.\scripts\build-rasterm.ps1 -Configuration Release
+```
+
+That command is the full local release gate: it builds and tests Debug and Release,
+smoke tests the benchmark, verifies separate installs, and builds clean C and C++
+consumers against both. Use `-Configuration Debug` or `-Configuration Release` to run
+only one configuration.
+
+The equivalent minimal manual build is:
 
 ```powershell
 cmake -S . -B build/core -A x64 -DRASTERM_WARNINGS_AS_ERRORS=ON
@@ -57,7 +73,8 @@ commands, ownership rules, and package layouts are in [`BINDINGS.md`](BINDINGS.m
 
 GitHub CI builds only the dependency free engine, examples, validation targets,
 benchmarks, and clean installed package consumers. Its Release ZIP contains public
-headers, `rasterm.lib`, and license notices. CMake/pkg-config metadata remains available
+headers, `rasterm.lib`, license notices, and the Rust/Python binding sources.
+CMake/pkg-config metadata remains available
 from `cmake --install`, but is not included in the minimal binary release. rPlayer,
 SimpleNES, RetroArch, and their dependencies are deliberately excluded.
 
