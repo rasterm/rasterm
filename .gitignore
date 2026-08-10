@@ -32,3 +32,11 @@ rasterm-*.zip
 *.metrics.csv
 rasterm-metrics*.csv
 metrics/
+
+bindings/rust/target/
+bindings/python/build/
+bindings/python/dist/
+bindings/python/src/*.egg-info/
+__pycache__/
+*.pyc
+ 
