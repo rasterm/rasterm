@@ -127,8 +127,16 @@ bool TerminalRenderer::drawAtHome(const std::string_view sixel, const bool resto
     if (saveLocally) {
         success = write("\x1b" "7");
     }
+
+    /* in scrolling mode a final, partial sixel band can move the viewport when
+     * a full height image is not divisible by six. display mode clamps the full
+     * image to the page; positioned patches switch back to scrolling mode. */
+
+
+    success = write("\x1b[?80h") && success;
     success = write("\x1b[H") && success;
     success = write(sixel) && success;
+    success = recoveryWrite("\x1b[?80l") && success;
     if (saveLocally) {
         success = recoveryWrite("\x1b" "8") && success;
     }
@@ -159,4 +167,4 @@ bool TerminalRenderer::drawAtCell(const int row, const int column, const std::st
     return success;
 }
 
-} 
+}

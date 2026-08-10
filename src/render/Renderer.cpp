@@ -54,6 +54,92 @@ DamageRegion alignToTerminalCells(const DamageRegion region, const int frameWidt
     return { x, y, clippedRight - x, clippedBottom - y };
 }
 
+std::int64_t area(const DamageRegion region) noexcept
+{
+    return static_cast<std::int64_t>(region.width) * region.height;
+}
+
+bool mergeWithoutInflation(DamageRegion& left, const DamageRegion right) noexcept
+{
+    const int x1 = std::min(left.x, right.x);
+    const int y1 = std::min(left.y, right.y);
+    const int x2 = std::max(left.x + left.width, right.x + right.width);
+    const int y2 = std::max(left.y + left.height, right.y + right.height);
+    const int overlapWidth = std::max(0, std::min(left.x + left.width, right.x + right.width) -
+        std::max(left.x, right.x));
+    const int overlapHeight = std::max(0, std::min(left.y + left.height, right.y + right.height) -
+        std::max(left.y, right.y));
+    const std::int64_t unionArea = area(left) + area(right) -
+        static_cast<std::int64_t>(overlapWidth) * overlapHeight;
+    const DamageRegion bounds{ x1, y1, x2 - x1, y2 - y1 };
+    if (area(bounds) != unionArea) return false;
+    left = bounds;
+    return true;
+}
+
+void normalizeDamage(std::vector<DamageRegion>& regions)
+{
+    bool merged = true;
+    while (merged) {
+        merged = false;
+        for (std::size_t first = 0; first < regions.size() && !merged; ++first) {
+            for (std::size_t second = first + 1; second < regions.size(); ++second) {
+                if (mergeWithoutInflation(regions[first], regions[second])) {
+                    regions.erase(regions.begin() + static_cast<std::ptrdiff_t>(second));
+                    merged = true;
+                    break;
+                }
+            }
+        }
+    }
+    std::sort(regions.begin(), regions.end(), [](const DamageRegion left,
+                                                  const DamageRegion right) {
+        return left.y != right.y ? left.y < right.y : left.x < right.x;
+    });
+}
+
+bool canPresentWithoutBottomScroll(const std::span<const DamageRegion> regions,
+                                   const int frameHeight) noexcept
+{
+    return std::none_of(regions.begin(), regions.end(), [frameHeight](const DamageRegion region) {
+        return region.y + region.height == frameHeight && region.height % 6 != 0;
+    });
+}
+
+bool planDamagePresentation(std::vector<DamageRegion>& regions, const int frameWidth,
+                            const int frameHeight, const TerminalCellPixels cells,
+                            const float fullFrameThreshold)
+{
+    if (regions.empty()) return false;
+    normalizeDamage(regions);
+
+    std::int64_t changedArea = 0;
+    DamageRegion bounds = regions.front();
+    for (const DamageRegion region : regions) {
+        changedArea += area(region);
+        const int right = std::max(bounds.x + bounds.width, region.x + region.width);
+        const int bottom = std::max(bounds.y + bounds.height, region.y + region.height);
+        bounds.x = std::min(bounds.x, region.x);
+        bounds.y = std::min(bounds.y, region.y);
+        bounds.width = right - bounds.x;
+        bounds.height = bottom - bounds.y;
+    }
+
+    const std::int64_t frameArea = static_cast<std::int64_t>(frameWidth) * frameHeight;
+    if (changedArea >= static_cast<double>(frameArea) * fullFrameThreshold) return true;
+    if (regions.size() == 1) return false;
+
+    const std::int64_t cursorAndFrameCost = static_cast<std::int64_t>(cells.cellWidth) *
+        cells.cellHeight * 2 * static_cast<std::int64_t>(regions.size() - 1);
+    const std::int64_t proportionalAllowance = changedArea /
+        (regions.size() >= 8 ? 4 : 8);
+    if (area(bounds) <= changedArea + std::max(cursorAndFrameCost, proportionalAllowance)) {
+        regions.assign(1, bounds);
+        return area(bounds) >= static_cast<double>(frameArea) * fullFrameThreshold;
+    }
+    return false;
+}
+
 }
 
 Renderer::Renderer(OutputSink& output, RendererOptions options) :
@@ -79,6 +165,7 @@ ErrorCode Renderer::clear()
 void Renderer::reset()
 {
     damage.reset();
+    usingSuppliedDamage = false;
     previousWidth = 0;
     previousHeight = 0;
 }
@@ -97,6 +184,7 @@ void Renderer::updateCellPixels(const TerminalCellPixels cellPixels)
     config.tileWidth = (config.tileWidth / cellPixels.cellWidth) * cellPixels.cellWidth;
     config.tileHeight = (config.tileHeight / cellPixels.cellHeight) * cellPixels.cellHeight;
     damage = DamageTracker(config);
+    usingSuppliedDamage = false;
     previousWidth = 0;
     previousHeight = 0;
 }
@@ -125,6 +213,7 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         (frame.width != previousWidth || frame.height != previousHeight);
     if (dimensionsChanged) {
         damage.reset();
+        usingSuppliedDamage = false;
     }
 
     if (!options.enableDirtyRegions) {
@@ -132,7 +221,7 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         const std::string_view sixel = backend->encodeFrame(frame);
         const auto encodeEnd = std::chrono::steady_clock::now();
         if (options.maximumOutputBytes > 0 && sixel.size() > options.maximumOutputBytes) {
-            damage.reset();
+            reset();
             return { .error = ErrorCode::OutputBufferLimitExceeded };
         }
         UpdateScope update(terminal, options.preserveCursor, options.useSynchronizedOutput);
@@ -143,10 +232,12 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         const auto presentStart = encodeEnd;
         outputSucceeded = terminal.drawAtHome(sixel) && outputSucceeded;
         outputSucceeded = update.finish() && outputSucceeded;
-        previousWidth = frame.width;
-        previousHeight = frame.height;
         if (!outputSucceeded) {
-            damage.reset();
+            reset();
+        }
+        else {
+            previousWidth = frame.width;
+            previousHeight = frame.height;
         }
         return { .error = outputSucceeded ? ErrorCode::None : terminal.error(),
                  .rendered = outputSucceeded, .usedFullFrame = true,
@@ -157,7 +248,10 @@ RenderResult Renderer::renderFrame(const Frame& frame)
 
     DamageResult difference;
     if (frame.metadata.damage.supplied) {
-        damage.update(frame);
+        if (!usingSuppliedDamage) {
+            damage.reset();
+            usingSuppliedDamage = true;
+        }
         suppliedDamage.clear();
         suppliedDamage.reserve(frame.metadata.damage.count);
         for (std::size_t index = 0; index < frame.metadata.damage.count; ++index) {
@@ -165,8 +259,9 @@ RenderResult Renderer::renderFrame(const Frame& frame)
                 frame.metadata.damage.rectangles[index], frame.width, frame.height,
                 options.cellPixels));
         }
+        normalizeDamage(suppliedDamage);
         const auto regions = std::span<const DamageRegion>(suppliedDamage);
-        const bool coversFrame = dimensionsChanged ||
+        const bool coversFrame = previousWidth == 0 || dimensionsChanged ||
             (regions.size() == 1 && regions[0].x == 0 && regions[0].y == 0 &&
              regions[0].width == frame.width && regions[0].height == frame.height);
         difference = {
@@ -177,10 +272,28 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         };
     }
     else {
+        if (usingSuppliedDamage) {
+            damage.reset();
+            usingSuppliedDamage = false;
+        }
         difference = damage.compareAndUpdate(frame);
     }
     if (!difference.hasChanges) {
         return {};
+    }
+    if (!difference.isFullFrame) {
+        presentationDamage.assign(difference.regions.begin(), difference.regions.end());
+        difference.isFullFrame = planDamagePresentation(
+            presentationDamage, frame.width, frame.height, options.cellPixels,
+            options.damage.fullFrameThreshold);
+        difference.regions = presentationDamage;
+    }
+
+    // Positioned SIXEL uses scrolling mode. A patch ending at the bottom edge
+    // must contain complete sixel bands or Windows Terminal scrolls one row.
+    if (!difference.isFullFrame &&
+        !canPresentWithoutBottomScroll(difference.regions, frame.height)) {
+        difference.isFullFrame = true;
     }
 
     if (difference.isFullFrame) {
@@ -188,7 +301,7 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         const std::string_view sixel = backend->encodeFrame(frame);
         const auto encodeEnd = std::chrono::steady_clock::now();
         if (options.maximumOutputBytes > 0 && sixel.size() > options.maximumOutputBytes) {
-            damage.reset();
+            reset();
             return { .error = ErrorCode::OutputBufferLimitExceeded };
         }
         UpdateScope update(terminal, options.preserveCursor, options.useSynchronizedOutput);
@@ -199,10 +312,12 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         const auto presentStart = encodeEnd;
         outputSucceeded = terminal.drawAtHome(sixel) && outputSucceeded;
         outputSucceeded = update.finish() && outputSucceeded;
-        previousWidth = frame.width;
-        previousHeight = frame.height;
         if (!outputSucceeded) {
-            damage.reset();
+            reset();
+        }
+        else {
+            previousWidth = frame.width;
+            previousHeight = frame.height;
         }
         return { .error = outputSucceeded ? ErrorCode::None : terminal.error(),
                  .rendered = outputSucceeded, .usedFullFrame = true,
@@ -216,7 +331,7 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         for (const DamageRegion& region : difference.regions) {
             predictedBytes += backend->encodeRegion(frame, region).size();
             if (predictedBytes > options.maximumOutputBytes) {
-                damage.reset();
+                reset();
                 return { .error = ErrorCode::OutputBufferLimitExceeded };
             }
         }
@@ -242,13 +357,15 @@ RenderResult Renderer::renderFrame(const Frame& frame)
     }
     outputSucceeded = update.finish() && outputSucceeded;
     if (!outputSucceeded) {
-        damage.reset();
+        reset();
         result.error = terminal.error();
         result.rendered = false;
         result.outputBytes = 0;
     }
-    previousWidth = frame.width;
-    previousHeight = frame.height;
+    else {
+        previousWidth = frame.width;
+        previousHeight = frame.height;
+    }
     return result;
 }
 

@@ -61,6 +61,8 @@ private:
     std::unique_ptr<GraphicsBackend> backend;
     DamageTracker damage;
     std::vector<DamageRegion> suppliedDamage;
+    std::vector<DamageRegion> presentationDamage;
+    bool usingSuppliedDamage = false;
     int previousWidth = 0;
     int previousHeight = 0;
 };
