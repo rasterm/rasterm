@@ -10,7 +10,7 @@
 
 namespace rasterm::benchmark {
 
-inline constexpr int corpusVersion = 1;
+inline constexpr int corpusVersion = 3;
 
 struct CorpusCase {
     CorpusCase(const std::string_view caseName, const int caseWidth, const int caseHeight,
@@ -28,6 +28,7 @@ struct CorpusCase {
     std::vector<RgbColor> palette;
     bool indexed = false;
     bool uiDamage = false;
+    bool lowEntropyMotion = false;
 };
 
 inline void fillRgb(CorpusCase& item, const int seed, const bool highMotion)
@@ -80,10 +81,44 @@ inline CorpusCase packed16(std::string_view name, const PixelFormat format)
     return item;
 }
 
+inline CorpusCase uiBgra(std::string_view name, const bool damage)
+{
+    CorpusCase item{ name, 1280, 720, PixelFormat::BGRA32 };
+    item.uiDamage = damage;
+    item.pixels.resize(static_cast<std::size_t>(item.width) * item.height * 4);
+    for (int y = 0; y < item.height; ++y) {
+        for (int x = 0; x < item.width; ++x) {
+            const bool panel = x >= 320 && x < 960 && y >= 180 && y < 540;
+            const bool control = x >= 480 && x < 800 && y >= 420 && y < 480;
+            const std::uint8_t value = control ? 0x6e : panel ? 0x1b : 0x11;
+            const std::size_t offset = static_cast<std::size_t>(y * item.width + x) * 4;
+            item.pixels[offset] = control ? 0xfe : value;
+            item.pixels[offset + 1] = control ? 0xa8 : value;
+            item.pixels[offset + 2] = control ? 0x6e : value;
+            item.pixels[offset + 3] = 0xff;
+        }
+    }
+    return item;
+}
+
+inline CorpusCase lowEntropyMotion()
+{
+    CorpusCase item{ "low-entropy-motion", 1280, 720, PixelFormat::BGRA32 };
+    item.lowEntropyMotion = true;
+    item.pixels.resize(static_cast<std::size_t>(item.width) * item.height * 4);
+    for (std::size_t offset = 0; offset < item.pixels.size(); offset += 4) {
+        item.pixels[offset] = 0x11;
+        item.pixels[offset + 1] = 0x11;
+        item.pixels[offset + 2] = 0x11;
+        item.pixels[offset + 3] = 0xff;
+    }
+    return item;
+}
+
 inline std::vector<CorpusCase> makeCorpus()
 {
     std::vector<CorpusCase> result;
-    result.reserve(8);
+    result.reserve(11);
 
     CorpusCase still{ "static-image", 640, 360, PixelFormat::RGB24 };
     fillRgb(still, 1, false);
@@ -123,6 +158,9 @@ inline std::vector<CorpusCase> makeCorpus()
     result.push_back(std::move(expanded));
     result.push_back(packed16("emulator-rgb565", PixelFormat::RGB565));
     result.push_back(packed16("emulator-rgba4444", PixelFormat::RGBA4444));
+    result.push_back(uiBgra("ui-bgra-full", false));
+    result.push_back(uiBgra("ui-bgra-damage", true));
+    result.push_back(lowEntropyMotion());
     return result;
 }
 

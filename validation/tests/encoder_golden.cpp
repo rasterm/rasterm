@@ -224,6 +224,16 @@ int main()
         if (hasRepeat != (width >= 3)) return 16;
     }
 
+    std::vector<std::uint8_t> maximumRun(65536);
+    const rasterm::IndexedFrameView maximumRunFrame{
+        maximumRun.data(), static_cast<int>(maximumRun.size()), 1,
+        static_cast<std::ptrdiff_t>(maximumRun.size()), { &red, 1 },
+    };
+    const std::string maximumRunSixel(encoder.encodeFrame(maximumRunFrame));
+    if (!exactRoundTrip(encoder, maximumRunFrame) ||
+        maximumRunSixel.find("!65535@") == std::string::npos ||
+        maximumRunSixel.find("!65536@") != std::string::npos) return 22;
+
     std::array<std::uint8_t, 64> nesIndices{};
     for (std::size_t index = 0; index < nesIndices.size(); ++index) {
         nesIndices[index] = static_cast<std::uint8_t>(index);
@@ -269,6 +279,92 @@ int main()
     if (rgbSixel != bgrSixel) {
         return 10;
     }
+
+    std::array<std::uint8_t, simdWidth * simdHeight * 4> rgba{};
+    std::array<std::uint8_t, simdWidth * simdHeight * 4> bgra{};
+    for (int pixel = 0; pixel < simdWidth * simdHeight; ++pixel) {
+        rgba[pixel * 4] = rgb[pixel * 3];
+        rgba[pixel * 4 + 1] = rgb[pixel * 3 + 1];
+        rgba[pixel * 4 + 2] = rgb[pixel * 3 + 2];
+        rgba[pixel * 4 + 3] = static_cast<std::uint8_t>(pixel);
+        bgra[pixel * 4] = rgb[pixel * 3 + 2];
+        bgra[pixel * 4 + 1] = rgb[pixel * 3 + 1];
+        bgra[pixel * 4 + 2] = rgb[pixel * 3];
+        bgra[pixel * 4 + 3] = static_cast<std::uint8_t>(255 - pixel);
+    }
+    const rasterm::FrameView rgbaFrame{
+        rgba.data(), simdWidth, simdHeight, simdWidth * 4, rasterm::PixelFormat::RGBA32
+    };
+    const rasterm::FrameView bgraFrame{
+        bgra.data(), simdWidth, simdHeight, simdWidth * 4, rasterm::PixelFormat::BGRA32
+    };
+    if (rgbSixel != encoder.encodeFrame(rgbaFrame) ||
+        rgbSixel != encoder.encodeFrame(bgraFrame)) {
+        return 17;
+    }
+
+    auto ditherOptions = rasterm::SixelOptions::ForRealtimeVideo();
+    ditherOptions.dither = rasterm::DitherMode::OrderedBayer4x4;
+    rasterm::VideoSixelEncoder ditherEncoder(ditherOptions);
+    if (ditherEncoder.encodeFrame(rgbFrame) != ditherEncoder.encodeFrame(rgbaFrame) ||
+        ditherEncoder.encodeFrame(rgbFrame) != ditherEncoder.encodeFrame(bgraFrame)) {
+        return 18;
+    }
+
+    std::array<std::uint8_t, simdWidth * simdHeight * 3> rgb565Expanded{};
+    std::array<std::uint8_t, simdWidth * simdHeight * 2> rgb565{};
+    std::array<std::uint8_t, simdWidth * simdHeight * 3> xrgb1555Expanded{};
+    std::array<std::uint8_t, simdWidth * simdHeight * 2> xrgb1555{};
+    std::array<std::uint8_t, simdWidth * simdHeight * 3> rgba4444Expanded{};
+    std::array<std::uint8_t, simdWidth * simdHeight * 2> rgba4444{};
+    for (int pixel = 0; pixel < simdWidth * simdHeight; ++pixel) {
+        const std::uint16_t r5 = static_cast<std::uint16_t>((pixel * 3) & 0x1f);
+        const std::uint16_t g6 = static_cast<std::uint16_t>((pixel * 5) & 0x3f);
+        const std::uint16_t g5 = static_cast<std::uint16_t>((pixel * 5) & 0x1f);
+        const std::uint16_t b5 = static_cast<std::uint16_t>((pixel * 7) & 0x1f);
+        const std::uint16_t r4 = static_cast<std::uint16_t>((pixel * 3) & 0x0f);
+        const std::uint16_t g4 = static_cast<std::uint16_t>((pixel * 5) & 0x0f);
+        const std::uint16_t b4 = static_cast<std::uint16_t>((pixel * 7) & 0x0f);
+        const std::array packed{
+            static_cast<std::uint16_t>((r5 << 11U) | (g6 << 5U) | b5),
+            static_cast<std::uint16_t>((r5 << 10U) | (g5 << 5U) | b5),
+            static_cast<std::uint16_t>((r4 << 12U) | (g4 << 8U) | (b4 << 4U) | 0x0fU),
+        };
+        const std::array layouts{
+            rasterm::PixelLayout::RGB565,
+            rasterm::PixelLayout::XRGB1555,
+            rasterm::PixelLayout::RGBA4444,
+        };
+        std::array<std::uint8_t*, 3> packedPixels{
+            rgb565.data(), xrgb1555.data(), rgba4444.data()
+        };
+        std::array<std::uint8_t*, 3> expandedPixels{
+            rgb565Expanded.data(), xrgb1555Expanded.data(), rgba4444Expanded.data()
+        };
+        for (std::size_t format = 0; format < layouts.size(); ++format) {
+            packedPixels[format][pixel * 2] = static_cast<std::uint8_t>(packed[format]);
+            packedPixels[format][pixel * 2 + 1] = static_cast<std::uint8_t>(packed[format] >> 8U);
+            const auto channels = rasterm::readPixel(
+                packedPixels[format] + pixel * 2, layouts[format]);
+            expandedPixels[format][pixel * 3] = channels.red;
+            expandedPixels[format][pixel * 3 + 1] = channels.green;
+            expandedPixels[format][pixel * 3 + 2] = channels.blue;
+        }
+    }
+    const auto matchesExpanded = [&](const auto& packed, const auto& expanded,
+                                     const rasterm::PixelFormat format) {
+        const rasterm::FrameView packedFrame{
+            packed.data(), simdWidth, simdHeight, simdWidth * 2, format
+        };
+        const rasterm::FrameView expandedFrame{
+            expanded.data(), simdWidth, simdHeight, simdWidth * 3,
+            rasterm::PixelFormat::RGB24
+        };
+        return encoder.encodeFrame(packedFrame) == encoder.encodeFrame(expandedFrame);
+    };
+    if (!matchesExpanded(rgb565, rgb565Expanded, rasterm::PixelFormat::RGB565)) return 19;
+    if (!matchesExpanded(xrgb1555, xrgb1555Expanded, rasterm::PixelFormat::XRGB1555)) return 20;
+    if (!matchesExpanded(rgba4444, rgba4444Expanded, rasterm::PixelFormat::RGBA4444)) return 21;
 
     constexpr std::array<rasterm::RgbColor, 24> colorChecker{{
         {115,82,68},{194,150,130},{98,122,157},{87,108,67},{133,128,177},{103,189,170},

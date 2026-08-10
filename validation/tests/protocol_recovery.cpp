@@ -116,6 +116,18 @@ int main()
         if (count(sink.bytes, "\x1b[?2026h") != count(sink.bytes, "\x1b[?2026l")) return 10;
     }
 
+    {
+        FaultSink sink;
+        rasterm::TerminalRenderer terminal(sink);
+        sink.clearBytes();
+        if (!terminal.drawAtHome(sixel)) return 20;
+        const auto displayMode = sink.bytes.find("\x1b[?80h");
+        const auto image = sink.bytes.find("\x1bP");
+        const auto scrollingMode = sink.bytes.find("\x1b[?80l", image);
+        if (displayMode == std::string::npos || image <= displayMode ||
+            scrollingMode <= image) return 21;
+    }
+
     DcsFaultSink sink;
     rasterm::Renderer renderer(sink, {
         .enableDirtyRegions = true,
@@ -137,14 +149,14 @@ int main()
     if (!recovered.complete || recovered.pixels.empty() ||
         recovered.pixels.front() != palette[1]) return 14;
 
-    const rasterm::DamageRect damage{ 14, 26, 7, 13 };
+    const rasterm::DamageRect damage{ 14, 13, 7, 13 };
     frame.metadata.damage = { &damage, 1, true };
     const std::size_t dirtyStart = sink.bytes.size();
     if (!renderer.render(frame).rendered) return 15;
-    if (std::string_view(sink.bytes).substr(dirtyStart).find("\x1b[3;3H") ==
+    if (std::string_view(sink.bytes).substr(dirtyStart).find("\x1b[2;3H") ==
         std::string_view::npos) return 16;
 
-    const rasterm::DamageRect unalignedDamage{ 15, 27, 1, 1 };
+    const rasterm::DamageRect unalignedDamage{ 15, 14, 1, 1 };
     frame.metadata.damage = { &unalignedDamage, 1, true };
     const std::size_t unalignedStart = sink.bytes.size();
     if (!renderer.render(frame).rendered) return 17;
@@ -155,5 +167,21 @@ int main()
     renderer.updateCellPixels({ 14, 13 });
     renderer.reset();
     if (!renderer.render(frame).rendered) return 19;
+
+    FaultSink bottomSink;
+    rasterm::Renderer bottomRenderer(bottomSink, {
+        .preserveCursor = false,
+        .enableDirtyRegions = true,
+        .useSynchronizedOutput = false,
+        .cellPixels = { 10, 20 },
+    });
+    std::array<std::uint8_t, 10 * 140 * 3> bottomPixels{};
+    rasterm::FrameView bottomFrame{
+        bottomPixels.data(), 10, 140, 10 * 3, rasterm::PixelFormat::RGB24
+    };
+    if (!bottomRenderer.render(bottomFrame).usedFullFrame) return 22;
+    const rasterm::DamageRect bottomDamage{ 0, 120, 10, 20 };
+    bottomFrame.metadata.damage = { &bottomDamage, 1, true };
+    if (!bottomRenderer.render(bottomFrame).usedFullFrame) return 23;
     return 0;
 }
