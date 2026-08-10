@@ -13,8 +13,9 @@ depend on each other and neither binding reaches into the C++ ABI.
         safe rasterm crate
 ```
 
-The public package name is `rasterm` on PyPI. The Rust crates are `rasterm` and
-`rasterm-sys`.
+The public package is [`rasterm`](https://pypi.org/project/rasterm/) on PyPI. The Rust
+crates are [`rasterm`](https://crates.io/crates/rasterm) and
+[`rasterm-sys`](https://crates.io/crates/rasterm-sys).
 
 ## Native Libraries
 

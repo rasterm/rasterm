@@ -1,4 +1,4 @@
-# rasterm 1.0 API Reference
+# rasterm 1.1 API Reference
 
 This page explains how to use every public C++ type under `include/rasterm/`, including
 who owns each buffer, which calls are thread safe, where callbacks run, and how errors
@@ -7,7 +7,7 @@ are returned. The C ABI is summarized near the end and defined in
 
 ## Core Rules
 
-* rasterm 1.0 renders frames inside Windows Terminal. You supply the pixel data, and the library handles protocol encoding internally.
+* rasterm 1.1 renders frames inside Windows Terminal. You supply the pixel data, and the library handles protocol encoding internally.
 * `Engine` is synchronous and single threaded. `Presenter` is thread safe and handles asynchronous rendering with a queue depth of one.
 * Views are immutable and borrowed. Byte strides must be positive (top down).
 * Only one active `Engine` or `Presenter` can write to standard output (`stdout`) at a time per process. Trying to open a second default output instance will fail. However, you can create multiple independent instances if you supply custom output sinks.

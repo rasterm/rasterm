@@ -2,7 +2,7 @@
 
 rasterm is a frame presentation library: your program supplies pixels, and rasterm gets
 them onto the terminal. The public C and C++ APIs do not expose SIXEL, even though SIXEL
-is the Windows Terminal backend used in 1.0.
+is the Windows Terminal backend used in rasterm 1.x.
 
 ## Start Here
 
