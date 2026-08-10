@@ -13,6 +13,8 @@ is the Windows Terminal backend used in 1.0.
 
 ## Public Contracts
 
+- [`BINDINGS.md`](BINDINGS.md) - Rust and Python APIs, builds, ownership, and packaging
+
 - [`COMPATIBILITY.md`](COMPATIBILITY.md) — semantic versioning, static library policy,
   compiler/runtime boundary, and C ABI v1
 - [`C_API.md`](C_API.md) — C specific usage and structure/version rules
@@ -30,6 +32,7 @@ is the Windows Terminal backend used in 1.0.
 
 ## Integrations
 
+- [`bindings`](../bindings/) - safe Rust and typed Python bindings over C API v1
 - [`apps/rPlayer`](../apps/rPlayer/README.md) — image/video/audio application
 - [`apps/SimpleNES`](../apps/SimpleNES/README.md) — native indexed/software framebuffer
 

@@ -66,8 +66,9 @@ high to low R, G, B, A nibbles; alpha is discarded during terminal rendering.
   thread safe.
 - Structures smaller than their v1 prefix return `RASTERM_ERROR_BUFFER_TOO_SMALL`;
   larger structures are accepted and unknown trailing bytes are ignored.
-- rasterm 1.0 is distributed as a static library. `RASTERM_C_API` and `RASTERM_CALL`
-  are reserved for a future shared library ABI and expand to nothing in 1.0.
+- rasterm 1.1 keeps the static library as the default and can build an optional shared
+  C ABI with `RASTERM_BUILD_SHARED_C_API=ON`. Define `RASTERM_SHARED_LIBRARY` when
+  compiling a C/C++ consumer against its import library.
 
 `rasterm_last_error` returns the calling thread's most recent C API validation or handle
 creation diagnostic. Handle specific last error functions additionally expose engine or

@@ -1,7 +1,8 @@
 # Build and Installation
 
-Run these commands from the rasterm repository root in PowerShell. rasterm 1.0 supports
-Windows x64 and C++20 and ships as a static library. You need Visual Studio 2022 v143
+Run these commands from the rasterm repository root in PowerShell. rasterm 1.1 supports
+Windows x64 and C++20. C++ consumers use the static library language bindings can use
+the optional shared C ABI. You need Visual Studio 2022 v143
 with the Desktop development with C++ workload, CMake 3.24+, and Windows Terminal 1.22+
 (1.23+ recommended).
 
@@ -39,6 +40,20 @@ build/install/lib/cmake/rasterm/
 
 For Debug, replace `Release` with `Debug`; the library is `rastermd.lib`. Official MSVC
 artifacts use `/MD` in Release and `/MDd` in Debug. Do not mix configurations or CRTs.
+
+## Shared C ABI and Bindings
+
+The dependency free DLL exports only the stable C API and leaves the C++ ABI private:
+
+```powershell
+cmake -S . -B build/bindings `
+  -DRASTERM_BUILD_SHARED_C_API=ON `
+  -DRASTERM_WARNINGS_AS_ERRORS=ON
+cmake --build build/bindings --config Release --target rasterm-shared
+```
+
+Output: `build/bindings/Release/rasterm.dll` and `rasterm-import.lib`. Rust/Python
+commands, ownership rules, and package layouts are in [`BINDINGS.md`](BINDINGS.md).
 
 GitHub CI builds only the dependency free engine, examples, validation targets,
 benchmarks, and clean installed package consumers. Its Release ZIP contains public
