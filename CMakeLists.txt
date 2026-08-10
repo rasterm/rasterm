@@ -186,6 +186,7 @@ if(RASTERM_BUILD_TESTS)
     add_executable(rasterm-allocation-failure-tests validation/tests/allocation_failure.cpp)
     target_link_libraries(rasterm-allocation-failure-tests PRIVATE rasterm::rasterm)
     add_test(NAME rasterm.allocation-failure COMMAND rasterm-allocation-failure-tests)
+    set_tests_properties(rasterm.allocation-failure PROPERTIES TIMEOUT 30)
 
     add_executable(rasterm-presenter-concurrency-tests validation/tests/presenter_concurrency.cpp)
     target_link_libraries(rasterm-presenter-concurrency-tests PRIVATE rasterm::rasterm)

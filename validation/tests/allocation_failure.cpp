@@ -4,19 +4,21 @@
 #include <rasterm/rasterm.hpp>
 
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <cstdlib>
 #include <new>
 #include <string_view>
 
 namespace {
-std::atomic<bool> failNextAllocation{ false };
+thread_local bool failNextAllocation = false;
 }
 
 void* operator new(const std::size_t size)
 {
-    if (failNextAllocation.exchange(false, std::memory_order_relaxed)) throw std::bad_alloc{};
+    if (failNextAllocation) {
+        failNextAllocation = false;
+        throw std::bad_alloc{};
+    }
     if (void* memory = std::malloc(size == 0 ? 1 : size)) return memory;
     throw std::bad_alloc{};
 }
@@ -74,6 +76,12 @@ int main()
     rasterm::Engine encoder;
     if (!encoder.initialize({ .output = &sink })) return 4;
     std::array<std::uint8_t, 64 * 64 * 3> pixels{};
+
+    /* initialize the writer's function local thread storage before injecting failure.
+       throwing while the Debug CRT is establishing that storage can strand its TLS guard. */
+
+    if (!encoder.renderFrame(pixels.data(), 1, 1, 3, rasterm::PixelFormat::RGB24).rendered) return 8;
+    encoder.reset();
     failNextAllocation = true;
     const rasterm::RenderStats failedRender = encoder.renderFrame(
         pixels.data(), 64, 64, 64 * 3, rasterm::PixelFormat::RGB24);
