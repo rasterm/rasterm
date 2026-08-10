@@ -77,9 +77,23 @@ jobs:
             throw "Expected one CPack archive, found $($archives.Count)."
           }
           $expectedName = "rasterm-$version.zip"
-          if ($archives[0].Name -ne $expectedName) {
-            Move-Item -LiteralPath $archives[0].FullName -Destination $expectedName
+
+          $packageRoot = Join-Path $pwd 'build/release-package'
+          New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
+          Expand-Archive -LiteralPath $archives[0].FullName -DestinationPath $packageRoot
+
+          $bindingFiles = @(git ls-files -- bindings)
+          if ($bindingFiles.Count -eq 0) {
+            throw 'No tracked binding sources were found.'
           }
+          foreach ($relativePath in $bindingFiles) {
+            $destination = Join-Path $packageRoot $relativePath
+            New-Item -ItemType Directory -Path (Split-Path $destination) -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $pwd $relativePath) -Destination $destination
+          }
+
+          Remove-Item -LiteralPath $archives[0].FullName
+          Compress-Archive -Path "$packageRoot/*" -DestinationPath $expectedName
 
       - name: Upload rasterm Package
         if: matrix.configuration == 'Release'
@@ -167,10 +181,55 @@ jobs:
             exit 1
           fi
 
+  windows-bindings:
+    name: Rust and Python Bindings
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Native Binding Libraries
+        run: >-
+          cmake -S . -B build/bindings -A x64
+          -DRASTERM_BUILD_SHARED_C_API=ON
+          -DRASTERM_WARNINGS_AS_ERRORS=ON
+
+      - name: Compile Native Binding Libraries
+        run: cmake --build build/bindings --config Release --target rasterm rasterm-shared --parallel
+
+      - name: Test Rust Bindings
+        shell: pwsh
+        run: |
+          $env:RASTERM_LIB_DIR = "$pwd/build/bindings/Release"
+          cargo fmt --manifest-path bindings/rust/Cargo.toml --all -- --check
+          cargo clippy --manifest-path bindings/rust/Cargo.toml --workspace --all-targets -- -D warnings
+          cargo test --manifest-path bindings/rust/Cargo.toml --workspace
+
+      - name: Test and Package Python Bindings
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = "$pwd/bindings/python/src"
+          $env:RASTERM_LIBRARY = "$pwd/build/bindings/Release/rasterm.dll"
+          python -m unittest discover -s bindings/python/tests -v
+          $native = "$pwd/bindings/python/src/rasterm/_native"
+          New-Item -ItemType Directory -Path $native -Force | Out-Null
+          Copy-Item $env:RASTERM_LIBRARY "$native/rasterm.dll"
+          python -m pip wheel bindings/python --no-deps --no-build-isolation --wheel-dir build/wheels
+          Remove-Item Env:RASTERM_LIBRARY
+          $wheels = @(Get-ChildItem build/wheels -Filter 'rasterm-*.whl')
+          if ($wheels.Count -ne 1) { throw "Expected one wheel, found $($wheels.Count)." }
+          $wheelPath = $wheels[0].FullName
+          python -m pip install --no-deps --target build/wheel-test $wheelPath
+          $env:PYTHONPATH = "$pwd/build/wheel-test"
+          python -c "import rasterm; assert rasterm.version() == (1, 1, 0)"
+
   release-master:
     name: Publish rasterm Release
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: [windows-x64, windows-clang-cl, windows-mingw64]
+    needs: [windows-x64, windows-clang-cl, windows-mingw64, windows-bindings]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -188,18 +247,23 @@ jobs:
         run: |
           $archives = @(Get-ChildItem release -Filter 'rasterm-*.zip')
           if ($archives.Count -ne 1) {
-            throw "Expected exactly one rasterm core archive, found $($archives.Count)."
+            throw "Expected exactly one rasterm archive, found $($archives.Count)."
           }
 
           $entries = @(tar -tf $archives[0].FullName)
           $unexpected = @($entries | Where-Object {
-            $_ -notmatch '^(include(?:/rasterm(?:/.*)?)?|lib(?:/rasterm\.lib)?|share(?:/rasterm(?:/(?:LICENSE|NOTICE|THIRD_PARTY_NOTICES\.md))?)?)/?$'
+            $_ -notmatch '^(bindings(?:/.*)?|include(?:/rasterm(?:/.*)?)?|lib(?:/rasterm\.lib)?|share(?:/rasterm(?:/(?:LICENSE|NOTICE|THIRD_PARTY_NOTICES\.md))?)?)/?$'
           })
           if ($unexpected.Count -ne 0) {
             throw "Unexpected release entries: $($unexpected -join ', ')"
           }
           if ($entries -notcontains 'lib/rasterm.lib') {
             throw 'Release archive is missing lib/rasterm.lib.'
+          }
+          foreach ($requiredBinding in @('bindings/rust/Cargo.toml', 'bindings/python/pyproject.toml')) {
+            if ($entries -notcontains $requiredBinding) {
+              throw "Release archive is missing $requiredBinding."
+            }
           }
           $version = $archives[0].BaseName -replace '^rasterm-', ''
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
