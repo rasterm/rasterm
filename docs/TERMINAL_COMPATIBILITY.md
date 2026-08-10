@@ -2,11 +2,11 @@
 
 rasterm targets Windows Terminal's SIXEL implementation. Windows Terminal 1.22 is
 the minimum stable line with SIXEL, synchronized output became available in stable
-1.23. The recommended 1.0 baseline is therefore Windows Terminal 1.23.20211.0 or
+1.23. The recommended rasterm 1.1 baseline is therefore Windows Terminal 1.23.20211.0 or
 newer. The latest stable release recorded for this matrix is 1.24.11321.0 (May 13,
 2026).
 
-| Terminal | SIXEL | synchronized output | rasterm 1.0 status |
+| Terminal | SIXEL | synchronized output | rasterm 1.1 status |
 |---|---:|---:|---|
 | Windows Terminal 1.22.10352 | supported | not assumed | minimum SIXEL only (set `useSynchronizedOutput=false`) |
 | Windows Terminal 1.23.20211 | supported | supported | minimum complete feature baseline |
