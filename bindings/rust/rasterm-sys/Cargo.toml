@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rasterm-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+links = "rasterm"
+description = "Raw FFI bindings to the rasterm C ABI"
+categories = ["external-ffi-bindings", "multimedia::images"]
+keywords = ["terminal", "graphics", "sixel", "ffi"]
+
+[lib]
+path = "src/lib.rs"
+ 
