@@ -1,15 +1,20 @@
-# rasterm for Rust
+# rasterm
 
-This workspace contains two dependency free crates:
-
-- `rasterm-sys`: literal checked in declarations for stable C API v1.
-- `rasterm`: safe ownership, packed/indexed frames, damage, Engine, and Presenter.
+Safe Rust bindings for rasterm terminal graphics. The crate provides validated packed
+and indexed frames, color metadata, damage rectangles, synchronous `Engine`, and the
+thread safe latest frame `Presenter`.
 
 ```powershell
-$env:RASTERM_LIB_DIR = Resolve-Path ../../build/bindings/Release
-cargo test --workspace
-cargo run -p rasterm --example gradient
+cargo add rasterm
 ```
 
-See [`docs/BINDINGS.md`](../../docs/BINDINGS.md) for linking and lifetime details.
- 
+```rust
+use rasterm::{Engine, EngineOptions, Frame, PixelFormat};
+
+let frame = Frame::new(&pixels, width, height, stride, PixelFormat::Rgba32)?;
+let mut engine = Engine::new(EngineOptions::default())?;
+engine.render(&frame)?;
+```
+
+The matching native library is distributed in rasterm's release ZIP. Point
+`RASTERM_LIB_DIR` at its `lib` directory before building.

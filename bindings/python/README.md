@@ -4,13 +4,19 @@ This package is a dependency free, typed wrapper over rasterm's stable C ABI. It
 any C contiguous Python buffer, including `bytes`, `bytearray`, `memoryview`, and
 C contiguous NumPy arrays without requiring NumPy.
 
-Build the optional shared C ABI and point the package at it:
+The PyPI wheel includes the matching Windows x64 native library:
+
+```powershell
+python -m pip install rasterm
+```
+
+For a source checkout, build the optional shared C ABI and point the package at it:
 
 ```powershell
 cmake -S ../.. -B ../../build/bindings -DRASTERM_BUILD_SHARED_C_API=ON
 cmake --build ../../build/bindings --config Release --target rasterm-shared
 $env:RASTERM_LIBRARY = Resolve-Path ../../build/bindings/Release/rasterm.dll
-python -m pip install -e . / python -m pip install rasterm
+python -m pip install -e .
 python examples/gradient.py
 ```
 
