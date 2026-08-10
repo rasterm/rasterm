@@ -4,7 +4,7 @@ VisualStudioVersion = 17.14.36202.13 d17.14
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "rasterm", "rasterm.vcxproj", "{A5A4DE86-BC1A-4F03-B945-46C67AC10265}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "rPlayer", "rPlayer.vcxproj", "{D1D44FB3-0EBE-4161-B0BD-2C50700F8859}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "rPlayer", "apps/rPlayer/rPlayer.vcxproj", "{D1D44FB3-0EBE-4161-B0BD-2C50700F8859}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
