@@ -360,6 +360,7 @@ private:
             FrameKind kind = FrameKind::Packed;
             FrameView frame;
             IndexedFrameView indexedFrame;
+            Clock::time_point presentationStart;
             {
                 std::unique_lock lock(mutex);
                 ready.wait(lock, [&] { return stopping || pendingGeneration != consumedGeneration; });
@@ -402,12 +403,13 @@ private:
                     }
                 }
                 consumedGeneration = pendingGeneration;
+                presentationStart = Clock::now();
             }
 
             const RenderStats rendered = kind == FrameKind::Packed
                 ? engine.renderFrame(frame)
                 : engine.renderFrame(indexedFrame);
-            nextFrame = Clock::now() + minimumInterval;
+            nextFrame = presentationStart + minimumInterval;
             {
                 std::lock_guard lock(mutex);
                 statistics.latestRender = rendered;
