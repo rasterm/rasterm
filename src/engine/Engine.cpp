@@ -221,7 +221,11 @@ public:
         try {
             refreshTerminalGeometry();
             FrameView unpacked = frame;
-            if (bytesPerPixel(frame.format) == 2) {
+            const ColorMetadata color = frame.metadata.color;
+            const bool alreadySrgb = color.transfer == TransferFunction::Srgb &&
+                color.primaries == ColorPrimaries::Bt709 && color.range == ColorRange::Full;
+            const bool needsColorConversion = options.color.convertToSrgb && !alreadySrgb;
+            if (bytesPerPixel(frame.format) == 2 && needsColorConversion) {
                 const std::size_t outputStride = static_cast<std::size_t>(frame.width) * 3;
                 convertedFrame.resize(outputStride * static_cast<std::size_t>(frame.height));
                 for (int row = 0; row < frame.height; ++row) {
@@ -260,30 +264,8 @@ public:
                 };
             }
             const FrameView colorManaged = colorConverter.toSrgb(unpacked, options.color);
-            FrameView renderView = colorManaged;
-            if (colorManaged.format == PixelFormat::RGBA32 || colorManaged.format == PixelFormat::BGRA32) {
-                const std::size_t outputStride = static_cast<std::size_t>(colorManaged.width) * 3;
-                convertedFrame.resize(outputStride * colorManaged.height);
-                for (int row = 0; row < colorManaged.height; ++row) {
-                    const std::uint8_t* source = colorManaged.data + static_cast<std::ptrdiff_t>(row) * colorManaged.stride;
-                    std::uint8_t* destination = convertedFrame.data() + static_cast<std::size_t>(row) * outputStride;
-                    for (int column = 0; column < colorManaged.width; ++column) {
-                        destination[column * 3] = source[column * 4];
-                        destination[column * 3 + 1] = source[column * 4 + 1];
-                        destination[column * 3 + 2] = source[column * 4 + 2];
-                    }
-                }
-                renderView = {
-                    .data = convertedFrame.data(),
-                    .width = colorManaged.width,
-                    .height = colorManaged.height,
-                    .stride = static_cast<std::ptrdiff_t>(outputStride),
-                    .format = colorManaged.format == PixelFormat::RGBA32 ? PixelFormat::RGB24 : PixelFormat::BGR24,
-                    .metadata = colorManaged.metadata,
-                };
-            }
-            return record(renderer->render(renderView), renderView.width, renderView.height,
-                          renderView.metadata);
+            return record(renderer->render(colorManaged), colorManaged.width, colorManaged.height,
+                          colorManaged.metadata);
         }
         catch (const std::bad_alloc&) {
             renderer->reset();
