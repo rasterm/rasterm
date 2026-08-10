@@ -13,7 +13,8 @@ Application -> FrameView -> Engine/Presenter -> private backend -> OutputSink
 
 ## Features
 
-- Dependency free static C++ library and stable C API v1
+- Dependency free static C++ library, optional shared C ABI, and stable C API v1
+- Safe Rust and typed, buffer protocol first Python bindings
 - Synchronous rendering or an asynchronous presenter that keeps only the newest frame
 - RGB/BGR 24-bit, RGBA/BGRA 32-bit, RGB565, XRGB1555, and RGBA4444
 - Exact caller provided indexed palettes with 1–256 colors
@@ -67,6 +68,7 @@ include/rasterm/        public C++ and C API
 src/                    private engine implementation
 apps/examples/          compiled minimal consumers
 apps/rPlayer/           media application
+bindings/               Rust and Python bindings over the C ABI
 validation/tests/       correctness, ABI, consumer, stress, and fuzz validation
 validation/benchmarks/  deterministic performance corpus and baselines
 docs/                   public documentation
@@ -77,18 +79,20 @@ docs/internal/          engineering/integration material
 
 - [API Contracts](docs/API.md)
 - [Build and Installation](docs/BUILD.md)
+- [Rust and Python Bindings](docs/BINDINGS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Compatibility and Versioning](docs/COMPATIBILITY.md)
 - [Terminal Compatibility](docs/TERMINAL_COMPATIBILITY.md)
 - [Color Behavior and Limitations](docs/COLOR.md)
 - [Documentation Index](docs/DOCS.md)
 
-## 1.0 Limitations
+## Current Limitations
 
 - Windows x64 and Windows Terminal SIXEL are the only supported platform/backend.
 - rasterm outputs at most 256 colors per image; HDR input is tone mapped to SDR.
 - Capability detection is conservative and does not actively negotiate with a terminal.
-- 1.0 ships static libraries only. MSVC and MinGW artifacts are not interchangeable.
+- C++ consumers use the static library the optional DLL exposes only the stable C ABI.
+  MSVC and MinGW artifacts are not interchangeable.
 - Resolution and FPS depend on the scene, payload size, terminal dimensions, Windows
   Terminal version, and hardware. No terminal renderer can promise the same native
   resolution or frame rate for every workload.
