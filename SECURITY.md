@@ -2,8 +2,8 @@
 
 ## Supported Versions
 
-Until 1.0 final, security fixes target the latest `1.0.0` prerelease. After 1.0 the
-latest 1.x minor release receives fixes, older minors may be asked to upgrade.
+Security fixes target the latest 1.x minor release, currently `1.1.x`. Users of older
+minor releases may be asked to upgrade before receiving a fix.
 
 ## Reporting a Vulnerability
 
