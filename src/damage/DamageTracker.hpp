@@ -33,8 +33,6 @@ public:
 
     DamageResult compareAndUpdate(const FrameView& frame);
     DamageResult compareAndUpdate(const IndexedFrameView& frame);
-    void update(const FrameView& frame);
-    void update(const IndexedFrameView& frame);
     void reset();
 
 private:

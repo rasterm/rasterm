@@ -56,21 +56,6 @@ DamageResult DamageTracker::compareAndUpdate(const IndexedFrameView& frame)
                             1, 100, frame.palette);
 }
 
-void DamageTracker::update(const FrameView& frame)
-{
-    if (frame.isValid()) {
-        copyFrame(frame.data, frame.width, frame.height, frame.stride,
-                  rasterm::bytesPerPixel(frame.format), static_cast<int>(frame.format), {});
-    }
-}
-
-void DamageTracker::update(const IndexedFrameView& frame)
-{
-    if (frame.isValid()) {
-        copyFrame(frame.indices, frame.width, frame.height, frame.stride, 1, 100, frame.palette);
-    }
-}
-
 DamageResult DamageTracker::compareAndUpdate(const std::uint8_t* data, const int width,
                                              const int height, const std::ptrdiff_t stride,
                                              const int pixelBytes, const int formatTag,
