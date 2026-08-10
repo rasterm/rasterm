@@ -19,10 +19,19 @@ The library has no third party dependency:
 .\scripts\build-rasterm.ps1 -Configuration Release
 ```
 
-That command is the full local release gate: it builds and tests Debug and Release,
-smoke tests the benchmark, verifies separate installs, and builds clean C and C++
-consumers against both. Use `-Configuration Debug` or `-Configuration Release` to run
-only one configuration.
+By default the script builds and installs only the dependency free static library and
+headers in Debug and Release. Use `-Configuration Debug` or `-Configuration Release`
+to run only one configuration. Optional work is explicit:
+
+```powershell
+./scripts/build-rasterm.ps1 -BuildShared
+./scripts/build-rasterm.ps1 -BuildExamples -RunTests -RunBenchmarks
+./scripts/build-rasterm.ps1 -Full
+```
+
+`-Full` is the maintainer release gate: it enables the shared C ABI, examples, tests,
+benchmark smoke test, install verification, and clean C/C++ consumers for both
+configurations.
 
 The equivalent minimal manual build is:
 
