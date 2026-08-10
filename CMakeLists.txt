@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(rasterm VERSION 1.0.0 LANGUAGES C CXX)
+project(rasterm VERSION 1.1.0 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "rasterm currently supports Windows Terminal only.")
@@ -13,6 +13,7 @@ option(RASTERM_BUILD_EXAMPLES "Build rasterm examples" OFF)
 option(RASTERM_BUILD_TESTS "Build rasterm smoke tests" OFF)
 option(RASTERM_BUILD_BENCHMARKS "Build rasterm microbenchmarks" OFF)
 option(RASTERM_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
+option(RASTERM_BUILD_RASTERMUI "Build the experimental rastermUI library" OFF)
 option(RASTERM_ENABLE_ASAN "Enable AddressSanitizer for first party targets" OFF)
 option(RASTERM_WARNINGS_AS_ERRORS "Treat first party compiler warnings as errors" ON)
 
@@ -257,6 +258,10 @@ if(RASTERM_BUILD_BENCHMARKS)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
+endif()
+
+if(RASTERM_BUILD_RASTERMUI)
+    add_subdirectory(apps/rastermUI)
 endif()
 
 install(TARGETS rasterm

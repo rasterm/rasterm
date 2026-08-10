@@ -1,4 +1,4 @@
-# rasterm 1.0.0
+# rasterm 1.1.0
 
 rasterm lets C and C++ programs draw real pixel frames in Windows Terminal. Give it a
 packed or indexed framebuffer and it handles SIXEL encoding, terminal setup, frame

@@ -2,7 +2,7 @@
 
 rasterm uses semantic versioning for its public headers and installed CMake package.
 
-- The current version is `1.0.0`, C++ ABI generation is `1`, and C API version is `1`.
+- The current version is `1.1.0`, C++ ABI generation is `1`, and C API version is `1`.
 - The beta freezes C API v1. Incompatible feedback is resolved before the final 1.0 tag.
 - From 1.0 onward, breaking source or ABI changes require a major version increment.
 - Additive APIs may ship in minor releases. Fixes that preserve documented behavior ship in patch releases.
@@ -10,7 +10,7 @@ rasterm uses semantic versioning for its public headers and installed CMake pack
 - Only declarations under `include/rasterm/` are public. Nothing under `src/`, `apps/`, `validation/`, or Microsoft's terminal snapshot carries compatibility guarantees.
 - Consumers should compare `RASTERM_ABI_VERSION` when loading binaries built independently.
 
-rasterm 1.0 distributes static libraries only. Official MSVC binaries support Windows
+rasterm 1.1 distributes static libraries only. Official MSVC binaries support Windows
 x64, Visual Studio 2022 v143, C++20, and the dynamic MSVC runtime: `/MD` for Release and
 `/MDd` for Debug. Consumers must match architecture, configuration, runtime library mode,
 iterator debug level, and a binary compatible v143 toolset. Debug and Release objects or
