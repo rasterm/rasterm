@@ -15,14 +15,85 @@
 #include <string_view>
 #include <vector>
 
-/* SIXEL encoder for 24-bit RGB frames.
-   quantizes RGB frames to a terminal compatible indexed palette.
+/* SIXEL encoder for packed 16-bit, 24-bit, and 32-bit RGB/BGR frames.
+   quantizes RGB channels to a terminal compatible indexed palette; alpha is ignored.
    encodes per 6pixel vertical bands, per color, with simple RLE.
    returns a complete SIXEL DCS string (ESC P q ... ESC \\). */
 
 namespace rasterm {
 
-    enum class PixelLayout { RGB, BGR };
+    enum class PixelLayout { RGB, BGR, RGBA, BGRA, RGB565, XRGB1555, RGBA4444 };
+
+    struct PixelChannels {
+        std::uint8_t red;
+        std::uint8_t green;
+        std::uint8_t blue;
+    };
+
+    [[nodiscard]] constexpr int pixelStride(const PixelLayout layout) noexcept
+    {
+        if (layout == PixelLayout::RGBA || layout == PixelLayout::BGRA) return 4;
+        if (layout == PixelLayout::RGB || layout == PixelLayout::BGR) return 3;
+        return 2;
+    }
+
+    [[nodiscard]] constexpr bool redFirst(const PixelLayout layout) noexcept
+    {
+        return layout == PixelLayout::RGB || layout == PixelLayout::RGBA;
+    }
+
+    [[nodiscard]] constexpr PixelLayout pixelLayout(const PixelFormat format) noexcept
+    {
+        switch (format) {
+        case PixelFormat::RGB24: return PixelLayout::RGB;
+        case PixelFormat::BGR24: return PixelLayout::BGR;
+        case PixelFormat::RGBA32: return PixelLayout::RGBA;
+        case PixelFormat::BGRA32: return PixelLayout::BGRA;
+        case PixelFormat::RGB565: return PixelLayout::RGB565;
+        case PixelFormat::XRGB1555: return PixelLayout::XRGB1555;
+        case PixelFormat::RGBA4444: return PixelLayout::RGBA4444;
+        }
+        return PixelLayout::RGB;
+    }
+
+    [[nodiscard]] constexpr PixelChannels readPixel(const std::uint8_t* pixel,
+                                                     const PixelLayout layout) noexcept
+    {
+        if (layout == PixelLayout::RGB || layout == PixelLayout::RGBA) {
+            return { pixel[0], pixel[1], pixel[2] };
+        }
+        if (layout == PixelLayout::BGR || layout == PixelLayout::BGRA) {
+            return { pixel[2], pixel[1], pixel[0] };
+        }
+
+        const auto packed = static_cast<std::uint16_t>(pixel[0]) |
+            static_cast<std::uint16_t>(pixel[1] << 8U);
+        if (layout == PixelLayout::RGB565) {
+            const auto expand5 = [](const std::uint16_t value) {
+                return static_cast<std::uint8_t>((value << 3U) | (value >> 2U));
+            };
+            const auto expand6 = [](const std::uint16_t value) {
+                return static_cast<std::uint8_t>((value << 2U) | (value >> 4U));
+            };
+            return { expand5((packed >> 11U) & 0x1fU),
+                     expand6((packed >> 5U) & 0x3fU),
+                     expand5(packed & 0x1fU) };
+        }
+        if (layout == PixelLayout::XRGB1555) {
+            const auto expand5 = [](const std::uint16_t value) {
+                return static_cast<std::uint8_t>((value << 3U) | (value >> 2U));
+            };
+            return { expand5((packed >> 10U) & 0x1fU),
+                     expand5((packed >> 5U) & 0x1fU),
+                     expand5(packed & 0x1fU) };
+        }
+        const auto expand4 = [](const std::uint16_t value) {
+            return static_cast<std::uint8_t>((value << 4U) | value);
+        };
+        return { expand4((packed >> 12U) & 0x0fU),
+                 expand4((packed >> 8U) & 0x0fU),
+                 expand4((packed >> 4U) & 0x0fU) };
+    }
 
     enum class QualityPreset {
         Fast,       /* stable perceptual palette, no dithering, INTER_LINEAR (for video) */

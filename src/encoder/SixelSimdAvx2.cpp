@@ -12,13 +12,15 @@ void mapPaletteRowAvx2(const std::uint8_t* pixels, const int width, const PixelL
 {
     alignas(32) std::int32_t offsets[8];
     alignas(32) std::int32_t mapped[8];
+    const int sourceStride = pixelStride(layout);
     int x = 0;
     for (; x + 8 <= width; x += 8) {
         for (int lane = 0; lane < 8; ++lane) {
-            const std::uint8_t* pixel = pixels + (x + lane) * 3;
-            const int red = layout == PixelLayout::RGB ? pixel[0] : pixel[2];
-            const int green = pixel[1];
-            const int blue = layout == PixelLayout::RGB ? pixel[2] : pixel[0];
+            const std::uint8_t* pixel = pixels + (x + lane) * sourceStride;
+            const PixelChannels channels = readPixel(pixel, layout);
+            const int red = channels.red;
+            const int green = channels.green;
+            const int blue = channels.blue;
             const int lr = (red * 31 + 127) / 255;
             const int lg = (green * 31 + 127) / 255;
             const int lb = (blue * 31 + 127) / 255;
@@ -32,10 +34,11 @@ void mapPaletteRowAvx2(const std::uint8_t* pixels, const int width, const PixelL
         }
     }
     for (; x < width; ++x) {
-        const std::uint8_t* pixel = pixels + x * 3;
-        const int red = layout == PixelLayout::RGB ? pixel[0] : pixel[2];
-        const int green = pixel[1];
-        const int blue = layout == PixelLayout::RGB ? pixel[2] : pixel[0];
+        const std::uint8_t* pixel = pixels + x * sourceStride;
+        const PixelChannels channels = readPixel(pixel, layout);
+        const int red = channels.red;
+        const int green = channels.green;
+        const int blue = channels.blue;
         const int lr = (red * 31 + 127) / 255;
         const int lg = (green * 31 + 127) / 255;
         const int lb = (blue * 31 + 127) / 255;

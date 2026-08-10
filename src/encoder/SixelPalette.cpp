@@ -83,13 +83,16 @@ void FastColorAnalyzer::analyzeFrameFast(const FrameView& image, const PixelLayo
     luminanceHistogram.fill(0.0f);
     colorFreq.reserve(1024);
     constexpr int sampleStep = 12;
+    const int sourceStride = pixelStride(layout);
     int samples = 0;
     for (int y = 0; y < image.height; y += sampleStep) {
         const uint8_t* row = image.data + static_cast<std::ptrdiff_t>(y) * image.stride;
         for (int x = 0; x < image.width; x += sampleStep) {
-            const uint8_t r = layout == PixelLayout::RGB ? row[3 * x] : row[3 * x + 2];
-            const uint8_t g = row[3 * x + 1];
-            const uint8_t b = layout == PixelLayout::RGB ? row[3 * x + 2] : row[3 * x];
+            const std::uint8_t* pixel = row + sourceStride * x;
+            const PixelChannels channels = readPixel(pixel, layout);
+            const uint8_t r = channels.red;
+            const uint8_t g = channels.green;
+            const uint8_t b = channels.blue;
             ++colorFreq[(r << 16) | (g << 8) | b];
             const int luminance = (54 * r + 183 * g + 19 * b) >> 8;
             ++luminanceHistogram[std::min(luminance >> 4, 15)];

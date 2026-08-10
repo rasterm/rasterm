@@ -17,9 +17,7 @@ void emitRasterAttributes(std::string& output, int width, int height);
 void emitPalette(std::string& output, const FastColorMapper& mapper);
 void emitPalette(std::string& output, const FastAdaptiveColorMapper& mapper);
 void emitPalette(std::string& output, PaletteView palette, int firstRegister = 1);
-void emitColorBand(std::string& output, const std::vector<uint8_t>& paletteIndices,
-                     int width, int height, int bandRow, int colorIndex);
 void emitIndexedFrame(std::string& output, const std::vector<uint8_t>& paletteIndices,
-                        int width, int height, int colorCount);
+                      int width, int height, int colorCount);
 
 }

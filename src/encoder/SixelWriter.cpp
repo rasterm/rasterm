@@ -3,7 +3,9 @@
 #include <encoder/SixelWriter.hpp>
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
+#include <iterator>
 
 namespace rasterm {
 namespace {
@@ -18,6 +20,13 @@ int macroParameterForAspectRatio(const int pixelAspectRatio)
     }
 }
 
+void appendNumber(std::string& output, const std::uint32_t value)
+{
+    char buffer[16];
+    const auto [end, error] = std::to_chars(std::begin(buffer), std::end(buffer), value);
+    if (error == std::errc{}) output.append(buffer, end);
+}
+
 void appendPalette(std::string& output, const std::vector<uint32_t>& palette, const int colorCount,
                    const std::vector<bool>* colorsUsed = nullptr)
 {
@@ -30,30 +39,57 @@ void appendPalette(std::string& output, const std::vector<uint32_t>& palette, co
         }
         const uint32_t rgb = palette[i];
         output += '#';
-        output += std::to_string(i);
+        appendNumber(output, i);
         output += ";2;";
-        output += std::to_string(to100((rgb >> 16) & 0xFF));
+        appendNumber(output, to100((rgb >> 16) & 0xFF));
         output += ';';
-        output += std::to_string(to100((rgb >> 8) & 0xFF));
+        appendNumber(output, to100((rgb >> 8) & 0xFF));
         output += ';';
-        output += std::to_string(to100(rgb & 0xFF));
+        appendNumber(output, to100(rgb & 0xFF));
     }
 }
 
 void emitRepeat(std::string& output, const int count, const int value)
 {
     const char character = static_cast<char>('?' + std::clamp(value, 0, 63));
-    if (count == 1) {
-        output += character;
+    constexpr int maximumRepeat = 65535;
+    int remaining = count;
+    while (remaining > 0) {
+        const int run = std::min(remaining, maximumRepeat);
+        if (run == 1) {
+            output += character;
+        }
+        else if (run == 2) {
+            output += character;
+            output += character;
+        }
+        else {
+            output += '!';
+            appendNumber(output, run);
+            output += character;
+        }
+        remaining -= run;
     }
-    else if (count == 2) {
-        output += character;
-        output += character;
+}
+
+void emitColorBand(std::string& output, const std::uint8_t* masks,
+                   const int firstColumn, const int lastColumn, const int colorIndex)
+{
+    output += '#';
+    appendNumber(output, colorIndex);
+    if (firstColumn > 0) {
+        emitRepeat(output, firstColumn, 0);
     }
-    else {
-        output += '!';
-        output += std::to_string(count);
-        output += character;
+
+    int column = firstColumn;
+    while (column <= lastColumn) {
+        const int bits = masks[column];
+        int run = 1;
+        while (column + run <= lastColumn && masks[column + run] == bits) {
+            ++run;
+        }
+        emitRepeat(output, run, bits);
+        column += run;
     }
 }
 
@@ -62,16 +98,16 @@ void emitRepeat(std::string& output, const int count, const int value)
 void beginSixel(std::string& output, const SixelOptions& options)
 {
     output += "\x1bP";
-    output += std::to_string(macroParameterForAspectRatio(options.pixelAspectRatio));
+    appendNumber(output, macroParameterForAspectRatio(options.pixelAspectRatio));
     output += options.transparentBackground ? ";1;0q" : ";2;0q";
 }
 
 void emitRasterAttributes(std::string& output, const int width, const int height)
 {
     output += "\"1;1;";
-    output += std::to_string(width);
+    appendNumber(output, width);
     output += ';';
-    output += std::to_string(height);
+    appendNumber(output, height);
 }
 
 void emitPalette(std::string& output, const FastColorMapper& mapper)
@@ -92,76 +128,68 @@ void emitPalette(std::string& output, const PaletteView palette, const int first
     for (std::size_t index = 0; index < palette.size; ++index) {
         const RgbColor color = palette.colors[index];
         output += '#';
-        output += std::to_string(index + firstRegister);
+        appendNumber(output, static_cast<std::uint32_t>(index + firstRegister));
         output += ";2;";
-        output += std::to_string(to100(color.red));
+        appendNumber(output, to100(color.red));
         output += ';';
-        output += std::to_string(to100(color.green));
+        appendNumber(output, to100(color.green));
         output += ';';
-        output += std::to_string(to100(color.blue));
+        appendNumber(output, to100(color.blue));
     }
-}
-
-void emitColorBand(std::string& output, const std::vector<uint8_t>& paletteIndices,
-                     const int width, const int height, const int bandRow, const int colorIndex)
-{
-    output += '#';
-    output += std::to_string(colorIndex);
-    const int bandHeight = std::min(6, height - bandRow);
-    const uint8_t* rows[6];
-    for (int i = 0; i < bandHeight; ++i) {
-        rows[i] = paletteIndices.data() + (bandRow + i) * width;
-    }
-
-    int column = 0;
-    while (column < width) {
-        int bits = 0;
-        for (int i = 0; i < bandHeight; ++i) {
-            bits |= (rows[i][column] == colorIndex) << i;
-        }
-
-        int run = 1;
-        while (column + run < width) {
-            int nextBits = 0;
-            for (int i = 0; i < bandHeight; ++i) {
-                nextBits |= (rows[i][column + run] == colorIndex) << i;
-            }
-            if (nextBits != bits) {
-                break;
-            }
-            ++run;
-        }
-        emitRepeat(output, run, bits);
-        column += run;
-    }
-    output += '$';
 }
 
 void emitIndexedFrame(std::string& output, const std::vector<uint8_t>& paletteIndices,
-                        const int width, const int height, const int colorCount)
+                      const int width, const int height, const int colorCount)
 {
+    static thread_local std::vector<std::uint8_t> bandMasks;
     static thread_local std::vector<int> colorsInBand;
-    static thread_local std::vector<bool> colorSeen;
-    if (colorSeen.size() < static_cast<size_t>(colorCount)) {
-        colorSeen.resize(colorCount);
+    static thread_local std::vector<int> colorSlot;
+    static thread_local std::vector<int> firstColumn;
+    static thread_local std::vector<int> lastColumn;
+    if (colorSlot.size() < static_cast<size_t>(colorCount)) {
+        colorSlot.resize(colorCount);
+        firstColumn.resize(colorCount);
+        lastColumn.resize(colorCount);
+    }
+
+    const std::size_t maskCount = static_cast<std::size_t>(colorCount) * width;
+    if (bandMasks.size() < maskCount) {
+        bandMasks.resize(maskCount);
     }
 
     for (int band = 0; band < height; band += 6) {
         colorsInBand.clear();
-        std::fill(colorSeen.begin(), colorSeen.begin() + colorCount, false);
+        std::fill(colorSlot.begin(), colorSlot.begin() + colorCount, -1);
         const int bandEnd = std::min(band + 6, height);
         for (int y = band; y < bandEnd; ++y) {
             const int rowStart = y * width;
             for (int x = 0; x < width; ++x) {
                 const int color = paletteIndices[rowStart + x];
-                if (!colorSeen[color]) {
-                    colorSeen[color] = true;
+                int slot = colorSlot[color];
+                if (slot < 0) {
+                    slot = static_cast<int>(colorsInBand.size());
+                    colorSlot[color] = slot;
                     colorsInBand.push_back(color);
+                    firstColumn[color] = x;
+                    lastColumn[color] = x;
+                    std::fill_n(bandMasks.begin() + static_cast<std::size_t>(slot) * width,
+                                width, std::uint8_t{});
                 }
+                else {
+                    firstColumn[color] = std::min(firstColumn[color], x);
+                    lastColumn[color] = std::max(lastColumn[color], x);
+                }
+                bandMasks[static_cast<std::size_t>(slot) * width + x] |=
+                    static_cast<std::uint8_t>(1U << (y - band));
             }
         }
-        for (const int color : colorsInBand) {
-            emitColorBand(output, paletteIndices, width, height, band, color);
+        for (std::size_t index = 0; index < colorsInBand.size(); ++index) {
+            const int color = colorsInBand[index];
+            emitColorBand(output, bandMasks.data() + index * width,
+                          firstColumn[color], lastColumn[color], color);
+            if (index + 1 < colorsInBand.size() || band + 6 >= height) {
+                output += '$';
+            }
         }
         if (band + 6 < height) {
             output += '-';

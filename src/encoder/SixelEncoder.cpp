@@ -124,11 +124,7 @@ VideoSixelEncoder::VideoSixelEncoder(const SixelOptions& opts) : options(opts)
 
 std::string_view VideoSixelEncoder::encodeFrame(const FrameView& frame)
 {
-    if (!frame.isValid() || bytesPerPixel(frame.format) != 3) {
-        return {};
-    }
-    const PixelLayout layout = frame.format == PixelFormat::RGB24 ? PixelLayout::RGB : PixelLayout::BGR;
-    return encodeView(frame, layout);
+    return frame.isValid() ? encodeView(frame, pixelLayout(frame.format)) : std::string_view{};
 }
 
 std::string_view VideoSixelEncoder::encodeFrame(const IndexedFrameView& frame)
@@ -138,21 +134,22 @@ std::string_view VideoSixelEncoder::encodeFrame(const IndexedFrameView& frame)
 
 std::string_view VideoSixelEncoder::encodeRegion(const FrameView& frame, const DamageRegion& region)
 {
-    if (!frame.isValid() || bytesPerPixel(frame.format) != 3 || !region.isValid() ||
+    const int sourcePixelStride = bytesPerPixel(frame.format);
+    if (!frame.isValid() || !region.isValid() ||
         region.x < 0 || region.y < 0 || region.x + region.width > frame.width ||
         region.y + region.height > frame.height) {
         return {};
     }
 
     const FrameView view{
-        .data = frame.data + static_cast<std::ptrdiff_t>(region.y) * frame.stride + region.x * 3,
+        .data = frame.data + static_cast<std::ptrdiff_t>(region.y) * frame.stride +
+            region.x * sourcePixelStride,
         .width = region.width,
         .height = region.height,
         .stride = frame.stride,
         .format = frame.format,
     };
-    const PixelLayout layout = frame.format == PixelFormat::RGB24 ? PixelLayout::RGB : PixelLayout::BGR;
-    return encodeView(view, layout);
+    return encodeView(view, pixelLayout(frame.format));
 }
 
 std::string_view VideoSixelEncoder::encodeRegion(const IndexedFrameView& frame,
@@ -175,13 +172,20 @@ std::string_view VideoSixelEncoder::encodeRegion(const IndexedFrameView& frame,
 std::string_view VideoSixelEncoder::encodeView(const FrameView& frame, const PixelLayout layout)
 {
     FrameView source = frame;
+    PixelLayout sourceLayout = layout;
     if (options.dither != DitherMode::None) {
         const std::size_t rowBytes = static_cast<std::size_t>(frame.width) * 3;
         workingBuffer.resize(rowBytes * frame.height);
+        const int sourceStride = pixelStride(layout);
         for (int row = 0; row < frame.height; ++row) {
-            std::memcpy(workingBuffer.data() + static_cast<std::size_t>(row) * rowBytes,
-                        frame.data + static_cast<std::ptrdiff_t>(row) * frame.stride,
-                        rowBytes);
+            const auto* input = frame.data + static_cast<std::ptrdiff_t>(row) * frame.stride;
+            auto* output = workingBuffer.data() + static_cast<std::size_t>(row) * rowBytes;
+            for (int column = 0; column < frame.width; ++column) {
+                const PixelChannels channels = readPixel(input + column * sourceStride, layout);
+                output[column * 3] = channels.red;
+                output[column * 3 + 1] = channels.green;
+                output[column * 3 + 2] = channels.blue;
+            }
         }
         if (options.dither == DitherMode::FloydSteinberg) {
             applyFloydSteinberg(workingBuffer, frame.width, frame.height,
@@ -196,8 +200,9 @@ std::string_view VideoSixelEncoder::encodeView(const FrameView& frame, const Pix
             .width = frame.width,
             .height = frame.height,
             .stride = static_cast<std::ptrdiff_t>(rowBytes),
-            .format = frame.format,
+            .format = PixelFormat::RGB24,
         };
+        sourceLayout = PixelLayout::RGB;
     }
 
     const int totalPixels = source.width * source.height;
@@ -207,7 +212,7 @@ std::string_view VideoSixelEncoder::encodeView(const FrameView& frame, const Pix
 
     int colorCount = 1;
     if (options.useAdaptivePalette) {
-        analyzer->analyzeFrameFast(source, layout);
+        analyzer->analyzeFrameFast(source, sourceLayout);
         float sceneDifference = 1.0f;
         if (colorMapper->hasHistogram) {
             sceneDifference = 0.0f;
@@ -227,25 +232,27 @@ std::string_view VideoSixelEncoder::encodeView(const FrameView& frame, const Pix
             ++paletteAge;
         }
         colorCount = colorMapper->nextColorNum;
+        const int sourceStride = pixelStride(sourceLayout);
         for (int y = 0; y < source.height; ++y) {
             const std::uint8_t* row = source.data + static_cast<std::ptrdiff_t>(y) * source.stride;
             for (int x = 0; x < source.width; ++x) {
-                const std::uint8_t red = layout == PixelLayout::RGB ? row[x * 3] : row[x * 3 + 2];
-                const std::uint8_t green = row[x * 3 + 1];
-                const std::uint8_t blue = layout == PixelLayout::RGB ? row[x * 3 + 2] : row[x * 3];
+                const std::uint8_t* pixel = row + x * sourceStride;
+                const PixelChannels channels = readPixel(pixel, sourceLayout);
                 paletteIndices[y * source.width + x] =
-                    static_cast<std::uint8_t>(colorMapper->getColorNumber(red, green, blue, false));
+                    static_cast<std::uint8_t>(colorMapper->getColorNumber(
+                        channels.red, channels.green, channels.blue, false));
             }
         }
     }
     else {
         fastColorMapper->reset();
-        const bool useAvx2 = source.width >= 64 && sixelAvx2Enabled();
+        const bool useAvx2 = pixelStride(sourceLayout) >= 3 &&
+            source.width >= 64 && sixelAvx2Enabled();
         for (int y = 0; y < source.height; ++y) {
             const std::uint8_t* row = source.data + static_cast<std::ptrdiff_t>(y) * source.stride;
             std::uint8_t* mapped = paletteIndices.data() + static_cast<std::size_t>(y) * source.width;
             if (useAvx2) {
-                mapPaletteRowAvx2(row, source.width, layout,
+                mapPaletteRowAvx2(row, source.width, sourceLayout,
                                   fastColorMapper->rgbLookup32.data(), mapped);
                 for (int x = 0; x < source.width; ++x) {
                     const int color = mapped[x];
@@ -256,12 +263,13 @@ std::string_view VideoSixelEncoder::encodeView(const FrameView& frame, const Pix
                 }
             }
             else {
+                const int sourceStride = pixelStride(sourceLayout);
                 for (int x = 0; x < source.width; ++x) {
-                    const std::uint8_t red = layout == PixelLayout::RGB ? row[x * 3] : row[x * 3 + 2];
-                    const std::uint8_t green = row[x * 3 + 1];
-                    const std::uint8_t blue = layout == PixelLayout::RGB ? row[x * 3 + 2] : row[x * 3];
+                    const std::uint8_t* pixel = row + x * sourceStride;
+                    const PixelChannels channels = readPixel(pixel, sourceLayout);
                     mapped[x] = static_cast<std::uint8_t>(
-                        fastColorMapper->getColorNumber(red, green, blue));
+                        fastColorMapper->getColorNumber(
+                            channels.red, channels.green, channels.blue));
                 }
             }
         }
