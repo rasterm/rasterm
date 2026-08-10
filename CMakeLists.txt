@@ -283,6 +283,8 @@ if(RASTERM_BUILD_SHARED_C_API)
         EXPORT_NAME shared
         OUTPUT_NAME rasterm
         ARCHIVE_OUTPUT_NAME rasterm-import
+        PDB_NAME rasterm-shared
+        COMPILE_PDB_NAME rasterm-shared-objects
         DEBUG_POSTFIX d
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
     if(RASTERM_MSVC_FRONTEND AND MSVC)
