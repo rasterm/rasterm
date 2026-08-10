@@ -203,6 +203,8 @@ jobs:
       - name: Test Rust Bindings
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $env:RASTERM_LIB_DIR = "$pwd/build/bindings/Release"
           cargo fmt --manifest-path bindings/rust/Cargo.toml --all -- --check
           cargo clippy --manifest-path bindings/rust/Cargo.toml --workspace --all-targets -- -D warnings
@@ -211,13 +213,15 @@ jobs:
       - name: Test and Package Python Bindings
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $env:PYTHONPATH = "$pwd/bindings/python/src"
           $env:RASTERM_LIBRARY = "$pwd/build/bindings/Release/rasterm.dll"
           python -m unittest discover -s bindings/python/tests -v
           $native = "$pwd/bindings/python/src/rasterm/_native"
           New-Item -ItemType Directory -Path $native -Force | Out-Null
           Copy-Item $env:RASTERM_LIBRARY "$native/rasterm.dll"
-          python -m pip wheel bindings/python --no-deps --no-build-isolation --wheel-dir build/wheels
+          python -m pip wheel bindings/python --no-deps --wheel-dir build/wheels
           Remove-Item Env:RASTERM_LIBRARY
           $wheels = @(Get-ChildItem build/wheels -Filter 'rasterm-*.whl')
           if ($wheels.Count -ne 1) { throw "Expected one wheel, found $($wheels.Count)." }
