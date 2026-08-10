@@ -6,11 +6,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* rasterm 1.0 ships as a static library. these macros are reserved so a
- * future shared library ABI can be introduced without changing declarations. */
+/* define RASTERM_SHARED_LIBRARY when consuming the optional shared C ABI. */
 
-#define RASTERM_STATIC_LIBRARY 1
-#define RASTERM_C_API
+#if defined(_WIN32) && defined(RASTERM_SHARED_LIBRARY)
+#  if defined(RASTERM_BUILD_SHARED_LIBRARY)
+#    define RASTERM_C_API __declspec(dllexport)
+#  else
+#    define RASTERM_C_API __declspec(dllimport)
+#  endif
+#else
+#  define RASTERM_STATIC_LIBRARY 1
+#  define RASTERM_C_API
+#endif
 #define RASTERM_CALL
 
 #ifdef __cplusplus
