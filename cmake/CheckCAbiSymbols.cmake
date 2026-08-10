@@ -2,8 +2,14 @@ if(NOT DEFINED DUMPBIN OR NOT DEFINED LIBRARY OR NOT DEFINED BASELINE)
     message(FATAL_ERROR "DUMPBIN, LIBRARY, and BASELINE are required")
 endif()
 
+if(EXPORTS)
+    set(dumpbin_mode /exports)
+else()
+    set(dumpbin_mode /linkermember:1)
+endif()
+
 execute_process(
-    COMMAND "${DUMPBIN}" /nologo /linkermember:1 "${LIBRARY}"
+    COMMAND "${DUMPBIN}" /nologo ${dumpbin_mode} "${LIBRARY}"
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
     ERROR_VARIABLE error

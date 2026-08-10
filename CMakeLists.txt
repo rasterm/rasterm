@@ -14,6 +14,7 @@ option(RASTERM_BUILD_TESTS "Build rasterm smoke tests" OFF)
 option(RASTERM_BUILD_BENCHMARKS "Build rasterm microbenchmarks" OFF)
 option(RASTERM_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
 option(RASTERM_BUILD_RASTERMUI "Build the experimental rastermUI library" OFF)
+option(RASTERM_BUILD_SHARED_C_API "Build the optional shared C ABI library" OFF)
 option(RASTERM_ENABLE_ASAN "Enable AddressSanitizer for first party targets" OFF)
 option(RASTERM_WARNINGS_AS_ERRORS "Treat first party compiler warnings as errors" ON)
 
@@ -265,6 +266,41 @@ if(RASTERM_BUILD_RASTERMUI)
     add_subdirectory(apps/rastermUI)
 endif()
 
+if(RASTERM_BUILD_SHARED_C_API)
+    add_library(rasterm-shared SHARED ${RASTERM_CORE_SOURCES})
+    add_library(rasterm::shared ALIAS rasterm-shared)
+    target_compile_features(rasterm-shared PUBLIC cxx_std_20)
+    target_compile_definitions(rasterm-shared
+        PUBLIC RASTERM_SHARED_LIBRARY
+        PRIVATE RASTERM_BUILD_SHARED_LIBRARY NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_include_directories(rasterm-shared
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    set_target_properties(rasterm-shared PROPERTIES
+        EXPORT_NAME shared
+        OUTPUT_NAME rasterm
+        ARCHIVE_OUTPUT_NAME rasterm-import
+        DEBUG_POSTFIX d
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    if(RASTERM_MSVC_FRONTEND AND MSVC)
+        target_compile_options(rasterm-shared PRIVATE /MP)
+    elseif(MINGW)
+        target_link_options(rasterm-shared PRIVATE -static-libstdc++)
+    endif()
+    if(RASTERM_BUILD_TESTS AND MSVC AND RASTERM_DUMPBIN)
+        add_test(NAME rasterm.c-abi-shared-symbols
+            COMMAND ${CMAKE_COMMAND}
+                -DDUMPBIN=${RASTERM_DUMPBIN}
+                -DLIBRARY=$<TARGET_FILE:rasterm-shared>
+                -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/validation/tests/abi/c_api_v1.symbols
+                -DEXPORTS=ON
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckCAbiSymbols.cmake)
+    endif()
+endif()
+
 install(TARGETS rasterm
     EXPORT rastermTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT RastermCore
@@ -272,6 +308,14 @@ install(TARGETS rasterm
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT RastermCore
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
+if(RASTERM_BUILD_SHARED_C_API)
+    install(TARGETS rasterm-shared
+        EXPORT rastermTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT RastermBindings
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT RastermBindings
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT RastermBindings
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+endif()
 install(DIRECTORY include/rasterm
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     COMPONENT RastermCore)
@@ -320,6 +364,6 @@ set(CPACK_COMPONENTS_ALL RastermCore)
 set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 set(CPACK_SOURCE_IGNORE_FILES
-    "/build/;/vcpkg_installed/;/.git/;/.vs/;/_CPack_Packages/;/apps/retroarch/;/apps/SimpleNES/;/rasterm-[^/]*[.]zip$"
+    "/build/;/vcpkg_installed/;/.git/;/.vs/;/_CPack_Packages/;/apps/retroarch/;/apps/SimpleNES/;/bindings/rust/target/;/bindings/python/build/;/bindings/python/src/[^/]*[.]egg-info/;/rasterm-[^/]*[.]zip$"
 )
 include(CPack)

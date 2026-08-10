@@ -20,6 +20,8 @@ else()
         cmake/rastermConfig.cmake.in
         include/rasterm/rasterm.hpp
         include/rasterm/capi.h
+        bindings/rust/Cargo.toml
+        bindings/python/pyproject.toml
         LICENSE
         NOTICE
         THIRD_PARTY_NOTICES.md
