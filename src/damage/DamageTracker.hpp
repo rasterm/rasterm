@@ -34,6 +34,7 @@ public:
     DamageResult compareAndUpdate(const FrameView& frame);
     DamageResult compareAndUpdate(const IndexedFrameView& frame);
     void reset();
+    [[nodiscard]] std::size_t scratchCapacity() const noexcept;
 
 private:
     DamageResult compareAndUpdate(const std::uint8_t* data, int width, int height,
