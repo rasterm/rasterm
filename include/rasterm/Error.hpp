@@ -29,6 +29,8 @@ enum class ErrorCode : std::int32_t {
     BufferTooSmall = 17,
     ApiVersionMismatch = 18,
     OutOfMemory = 19,
+    PresenterStopped = 20,
+    TimedOut = 21,
 };
 
 struct Status {

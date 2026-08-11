@@ -50,7 +50,9 @@ typedef enum rasterm_result {
     RASTERM_ERROR_RENDERING_EXCEPTION = 16,
     RASTERM_ERROR_BUFFER_TOO_SMALL = 17,
     RASTERM_ERROR_API_VERSION_MISMATCH = 18,
-    RASTERM_ERROR_OUT_OF_MEMORY = 19
+    RASTERM_ERROR_OUT_OF_MEMORY = 19,
+    RASTERM_ERROR_PRESENTER_STOPPED = 20,
+    RASTERM_ERROR_TIMED_OUT = 21
 } rasterm_result;
 
 typedef enum rasterm_pixel_format {
@@ -175,7 +177,20 @@ typedef struct rasterm_engine_options {
     void* output_context;
     rasterm_write_callback write;
     rasterm_flush_callback flush;
-    uint64_t reserved[8];
+    int32_t sixel_support_override;
+    int32_t synchronized_output_override;
+    int32_t override_columns;
+    int32_t override_rows;
+    int32_t override_pixel_width;
+    int32_t override_pixel_height;
+    int32_t override_cell_pixel_width;
+    int32_t override_cell_pixel_height;
+    int32_t persist_palette_registers;
+    int32_t palette_refresh_frames;
+    uint64_t output_chunk_bytes;
+    int32_t maximum_encoder_threads;
+    int32_t independent_region_quantization;
+    uint64_t reserved[1];
 } rasterm_engine_options;
 
 typedef struct rasterm_frame {
@@ -233,7 +248,12 @@ typedef struct rasterm_render_stats {
     uint64_t output_failures;
     uint64_t backpressure_events;
     uint64_t payload_limit_drops;
-    uint64_t reserved[8];
+    uint64_t wire_bytes;
+    uint64_t scratch_bytes;
+    uint64_t output_capacity_bytes;
+    double validation_milliseconds;
+    double conversion_milliseconds;
+    uint64_t reserved[3];
 } rasterm_render_stats;
 
 typedef struct rasterm_terminal_capabilities {
@@ -259,7 +279,11 @@ typedef struct rasterm_presenter_stats {
     uint64_t presented_frames;
     uint64_t replaced_frames;
     rasterm_render_stats latest_render;
-    uint64_t reserved[8];
+    uint64_t unchanged_frames;
+    uint64_t failed_frames;
+    uint64_t rejected_frames;
+    uint64_t cancelled_frames;
+    uint64_t reserved[4];
 } rasterm_presenter_stats;
 
 #define RASTERM_ENGINE_OPTIONS_V1_SIZE ((uint32_t)(offsetof(rasterm_engine_options, reserved) + sizeof(((rasterm_engine_options*)0)->reserved)))
@@ -290,7 +314,8 @@ RASTERM_C_ABI_ASSERT(sizeof(rasterm_indexed_frame) == 232, "rasterm_indexed_fram
 RASTERM_C_ABI_ASSERT(sizeof(rasterm_render_stats) == 176, "rasterm_render_stats ABI changed");
 RASTERM_C_ABI_ASSERT(sizeof(rasterm_terminal_capabilities) == 120, "rasterm_terminal_capabilities ABI changed");
 RASTERM_C_ABI_ASSERT(sizeof(rasterm_presenter_stats) == 272, "rasterm_presenter_stats ABI changed");
-RASTERM_C_ABI_ASSERT(offsetof(rasterm_engine_options, reserved) == 96, "rasterm_engine_options prefix changed");
+RASTERM_C_ABI_ASSERT(offsetof(rasterm_engine_options, sixel_support_override) == 96, "rasterm_engine_options v1 prefix changed");
+RASTERM_C_ABI_ASSERT(offsetof(rasterm_engine_options, persist_palette_registers) == 128, "rasterm_engine_options tuning offset changed");
 RASTERM_C_ABI_ASSERT(offsetof(rasterm_frame, metadata) == 40, "rasterm_frame prefix changed");
 RASTERM_C_ABI_ASSERT(offsetof(rasterm_indexed_frame, metadata) == 48, "rasterm_indexed_frame prefix changed");
 RASTERM_C_ABI_ASSERT(offsetof(rasterm_presenter_stats, latest_render) == 32, "rasterm_presenter_stats prefix changed");
@@ -334,6 +359,9 @@ RASTERM_C_API rasterm_result rasterm_engine_last_error(const rasterm_engine* eng
 RASTERM_C_API rasterm_result rasterm_presenter_create(const rasterm_presenter_options* options,
                                                       rasterm_presenter** output_presenter);
 RASTERM_C_API void rasterm_presenter_destroy(rasterm_presenter* presenter);
+RASTERM_C_API rasterm_result rasterm_presenter_wait_until_idle(
+    rasterm_presenter* presenter, uint32_t timeout_milliseconds);
+RASTERM_C_API rasterm_result rasterm_presenter_invalidate(rasterm_presenter* presenter);
 RASTERM_C_API rasterm_result rasterm_presenter_submit(rasterm_presenter* presenter,
                                                       const rasterm_frame* frame);
 RASTERM_C_API rasterm_result rasterm_presenter_submit_indexed(
