@@ -75,6 +75,34 @@ struct FastAdaptiveColorMapper {
         }
         return bestMatch;
     }
+
+    inline int getColorNumberReadOnly(const uint8_t r, const uint8_t g,
+                                      const uint8_t b) const
+    {
+        const uint32_t rgb = (r << 16) | (g << 8) | b;
+        const auto cached = rgbToColorNum.find(rgb);
+        if (cached != rgbToColorNum.end()) return cached->second;
+
+        const int quantizedIndex = (q6(r) * 6 + q6(g)) * 6 + q6(b);
+        if (quantizedLookup[quantizedIndex] != -1) {
+            return quantizedLookup[quantizedIndex];
+        }
+        int bestMatch = 1;
+        int bestDifference = INT_MAX;
+        const int searchColors = std::min(32, nextColorNum);
+        for (int i = 1; i < searchColors && bestDifference > 256; ++i) {
+            const uint32_t paletteRgb = palette[i];
+            const int difference =
+                std::abs(static_cast<int>(r) - static_cast<int>((paletteRgb >> 16) & 0xFF)) +
+                std::abs(static_cast<int>(g) - static_cast<int>((paletteRgb >> 8) & 0xFF)) +
+                std::abs(static_cast<int>(b) - static_cast<int>(paletteRgb & 0xFF));
+            if (difference < bestDifference) {
+                bestDifference = difference;
+                bestMatch = i;
+            }
+        }
+        return bestMatch;
+    }
 };
 
 struct FastColorMapper {
