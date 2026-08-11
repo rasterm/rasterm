@@ -16,6 +16,9 @@ file(GLOB_RECURSE first_party_sources
     "${ROOT}/validation/*.hpp")
 
 foreach(source IN LISTS first_party_sources)
+    if(source MATCHES "[/\\\\](build|vcpkg_installed)[/\\\\]")
+        continue()
+    endif()
     file(STRINGS "${source}" first_line LIMIT_COUNT 1)
     if(NOT first_line STREQUAL "/* SPDX-License-Identifier: Apache-2.0 */")
         message(FATAL_ERROR "Missing Apache-2.0 SPDX identifier: ${source}")
