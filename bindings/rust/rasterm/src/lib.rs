@@ -751,6 +751,6 @@ mod tests {
     #[test]
     fn linked_library_matches_binding_version() {
         assert_eq!(unsafe { sys::rasterm_c_api_version() }, C_API_VERSION);
-        assert_eq!(version(), (1, 1, 0));
+        assert_eq!(version(), (1, 2, 0));
     }
 }
