@@ -2,6 +2,7 @@
 
 #include <output/TerminalRenderer.hpp>
 
+#include <algorithm>
 #include <cstdio>
 
 namespace rasterm {
@@ -34,6 +35,23 @@ bool TerminalRenderer::write(const std::string_view bytes) noexcept
         lastError = ErrorCode::OutputWriteFailed;
         return false;
     }
+    totalAcceptedBytes += bytes.size();
+    return true;
+}
+
+bool TerminalRenderer::writeChunks(const std::string_view bytes,
+                                   const std::size_t chunkBytes) noexcept
+{
+    if (chunkBytes == 0 || bytes.size() <= chunkBytes) return write(bytes);
+    std::size_t offset = 0;
+    while (offset < bytes.size()) {
+        const std::size_t count = std::min(chunkBytes, bytes.size() - offset);
+        if (!write(bytes.substr(offset, count))) {
+            if (offset > 0) recoveryWrite("\x1b\\");
+            return false;
+        }
+        offset += count;
+    }
     return true;
 }
 
@@ -49,6 +67,7 @@ bool TerminalRenderer::flush() noexcept
 bool TerminalRenderer::recoveryWrite(const std::string_view bytes) noexcept
 {
     if (sink.write(bytes)) {
+        totalAcceptedBytes += bytes.size();
         return true;
     }
     if (lastError == ErrorCode::None) {
@@ -120,7 +139,8 @@ bool TerminalRenderer::endSynchronizedUpdate() noexcept
     return success;
 }
 
-bool TerminalRenderer::drawAtHome(const std::string_view sixel, const bool restoreCursor) noexcept
+bool TerminalRenderer::drawAtHome(const std::string_view sixel, const bool restoreCursor,
+                                  const std::size_t chunkBytes) noexcept
 {
     const bool saveLocally = restoreCursor && !updateActive;
     bool success = true;
@@ -135,7 +155,7 @@ bool TerminalRenderer::drawAtHome(const std::string_view sixel, const bool resto
 
     success = write("\x1b[?80h") && success;
     success = write("\x1b[H") && success;
-    success = write(sixel) && success;
+    success = writeChunks(sixel, chunkBytes) && success;
     success = recoveryWrite("\x1b[?80l") && success;
     if (saveLocally) {
         success = recoveryWrite("\x1b" "8") && success;
@@ -147,7 +167,8 @@ bool TerminalRenderer::drawAtHome(const std::string_view sixel, const bool resto
 }
 
 bool TerminalRenderer::drawAtCell(const int row, const int column, const std::string_view sixel,
-                                  const bool restoreCursor) noexcept
+                                  const bool restoreCursor,
+                                  const std::size_t chunkBytes) noexcept
 {
     const bool saveLocally = restoreCursor && !updateActive;
     bool success = true;
@@ -157,7 +178,7 @@ bool TerminalRenderer::drawAtCell(const int row, const int column, const std::st
     char cursor[32];
     const int length = std::snprintf(cursor, sizeof(cursor), "\x1b[%d;%dH", row + 1, column + 1);
     success = write({ cursor, static_cast<std::size_t>(length) }) && success;
-    success = write(sixel) && success;
+    success = writeChunks(sixel, chunkBytes) && success;
     if (saveLocally) {
         success = recoveryWrite("\x1b" "8") && success;
     }
