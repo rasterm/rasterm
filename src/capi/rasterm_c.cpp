@@ -4,6 +4,7 @@
 #include <rasterm/rasterm.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -96,6 +97,8 @@ rasterm_result result(const rasterm::ErrorCode code) noexcept
     case rasterm::ErrorCode::BufferTooSmall: return RASTERM_ERROR_BUFFER_TOO_SMALL;
     case rasterm::ErrorCode::ApiVersionMismatch: return RASTERM_ERROR_API_VERSION_MISMATCH;
     case rasterm::ErrorCode::OutOfMemory: return RASTERM_ERROR_OUT_OF_MEMORY;
+    case rasterm::ErrorCode::PresenterStopped: return RASTERM_ERROR_PRESENTER_STOPPED;
+    case rasterm::ErrorCode::TimedOut: return RASTERM_ERROR_TIMED_OUT;
     }
     return RASTERM_ERROR_RENDERING_EXCEPTION;
 }
@@ -191,6 +194,13 @@ int32_t capability(const rasterm::CapabilitySupport value) noexcept
     return RASTERM_CAPABILITY_UNKNOWN;
 }
 
+rasterm::CapabilitySupport capabilitySupport(const int32_t value) noexcept
+{
+    if (value == RASTERM_CAPABILITY_UNSUPPORTED) return rasterm::CapabilitySupport::Unsupported;
+    if (value == RASTERM_CAPABILITY_SUPPORTED) return rasterm::CapabilitySupport::Supported;
+    return rasterm::CapabilitySupport::Unknown;
+}
+
 void defaultColor(rasterm_color_metadata& color, const bool source) noexcept
 {
     color.primaries = source ? RASTERM_PRIMARIES_UNSPECIFIED : RASTERM_PRIMARIES_BT709;
@@ -240,6 +250,11 @@ void fillStats(const rasterm::RenderStats& source, rasterm_render_stats& destina
     destination.output_failures = source.outputFailures;
     destination.backpressure_events = source.backpressureEvents;
     destination.payload_limit_drops = source.payloadLimitDrops;
+    destination.wire_bytes = static_cast<uint64_t>(source.wireBytes);
+    destination.scratch_bytes = static_cast<uint64_t>(source.scratchBytes);
+    destination.output_capacity_bytes = static_cast<uint64_t>(source.outputCapacityBytes);
+    destination.validation_milliseconds = source.validationMilliseconds;
+    destination.conversion_milliseconds = source.conversionMilliseconds;
 }
 
 }
@@ -301,7 +316,17 @@ bool validEngineOptions(const rasterm_engine_options& options) noexcept
         std::isfinite(options.output_peak_nits) && options.output_peak_nits > 0.0f &&
         options.adaptive_palette_lock_frames >= 0 &&
         std::isfinite(options.scene_cut_threshold) && options.scene_cut_threshold >= 0.0f &&
-        options.scene_cut_threshold <= 1.0f;
+        options.scene_cut_threshold <= 1.0f &&
+        options.sixel_support_override >= RASTERM_CAPABILITY_UNKNOWN &&
+        options.sixel_support_override <= RASTERM_CAPABILITY_SUPPORTED &&
+        options.synchronized_output_override >= RASTERM_CAPABILITY_UNKNOWN &&
+        options.synchronized_output_override <= RASTERM_CAPABILITY_SUPPORTED &&
+        options.override_columns >= 0 && options.override_rows >= 0 &&
+        options.override_pixel_width >= 0 && options.override_pixel_height >= 0 &&
+        options.override_cell_pixel_width >= 0 && options.override_cell_pixel_height >= 0 &&
+        ((options.override_cell_pixel_width == 0) ==
+         (options.override_cell_pixel_height == 0)) &&
+        options.palette_refresh_frames >= 0 && options.maximum_encoder_threads >= 0;
 }
 
 rasterm::EngineOptions engineOptions(const rasterm_engine_options& options,
@@ -325,6 +350,25 @@ rasterm::EngineOptions engineOptions(const rasterm_engine_options& options,
             .sceneCutThreshold = options.scene_cut_threshold,
         },
         .output = sink,
+        .terminalOverrides = {
+            .sixel = capabilitySupport(options.sixel_support_override),
+            .synchronizedOutput = capabilitySupport(options.synchronized_output_override),
+            .geometry = {
+                options.override_columns,
+                options.override_rows,
+                options.override_pixel_width,
+                options.override_pixel_height,
+                options.override_cell_pixel_width,
+                options.override_cell_pixel_height,
+            },
+        },
+        .encoder = {
+            .persistPaletteRegisters = options.persist_palette_registers != 0,
+            .paletteRefreshFrames = options.palette_refresh_frames,
+            .outputChunkBytes = static_cast<size_t>(options.output_chunk_bytes),
+            .maximumThreads = options.maximum_encoder_threads,
+            .independentRegionQuantization = options.independent_region_quantization != 0,
+        },
     };
 }
 
@@ -335,6 +379,10 @@ void fillPresenterStats(const rasterm::PresenterStats& source,
     destination.presented_frames = source.presentedFrames;
     destination.replaced_frames = source.replacedFrames;
     fillStats(source.latestRender, destination.latest_render);
+    destination.unchanged_frames = source.unchangedFrames;
+    destination.failed_frames = source.failedFrames;
+    destination.rejected_frames = source.rejectedFrames;
+    destination.cancelled_frames = source.cancelledFrames;
 }
 
 }
@@ -357,6 +405,10 @@ void rasterm_engine_options_init(rasterm_engine_options* options)
     options->realtime_dither = RASTERM_DITHER_NONE;
     options->adaptive_palette_lock_frames = 12;
     options->scene_cut_threshold = 0.30f;
+    options->persist_palette_registers = 1;
+    options->palette_refresh_frames = 120;
+    options->output_chunk_bytes = 64 * 1024;
+    options->independent_region_quantization = 1;
 }
 
 void rasterm_frame_init(rasterm_frame* frame)
@@ -736,6 +788,54 @@ rasterm_result rasterm_presenter_create(const rasterm_presenter_options* request
 }
 
 void rasterm_presenter_destroy(rasterm_presenter* presenter) { delete presenter; }
+
+rasterm_result rasterm_presenter_wait_until_idle(rasterm_presenter* presenter,
+                                                 const uint32_t timeout_milliseconds)
+{
+    if (presenter == nullptr) {
+        return rasterm_c_detail::failure(RASTERM_ERROR_INVALID_ARGUMENT,
+                                         "presenter must not be null.");
+    }
+    try {
+        if (!presenter->presenter.waitUntilIdle(
+                std::chrono::milliseconds(timeout_milliseconds))) {
+            const rasterm::Status status = presenter->presenter.status();
+            presenter->lastError = status.message;
+            return rasterm_c_detail::failure(rasterm_c_detail::result(status.code),
+                                             status.message);
+        }
+        presenter->lastError.clear();
+        rasterm_c_detail::succeeded();
+        return RASTERM_SUCCESS;
+    }
+    catch (...) {
+        return rasterm_c_detail::failure(RASTERM_ERROR_RENDERING_EXCEPTION,
+                                         "Unexpected exception while draining Presenter.");
+    }
+}
+
+rasterm_result rasterm_presenter_invalidate(rasterm_presenter* presenter)
+{
+    if (presenter == nullptr) {
+        return rasterm_c_detail::failure(RASTERM_ERROR_INVALID_ARGUMENT,
+                                         "presenter must not be null.");
+    }
+    try {
+        if (!presenter->presenter.invalidate()) {
+            const rasterm::Status status = presenter->presenter.status();
+            presenter->lastError = status.message;
+            return rasterm_c_detail::failure(rasterm_c_detail::result(status.code),
+                                             status.message);
+        }
+        presenter->lastError.clear();
+        rasterm_c_detail::succeeded();
+        return RASTERM_SUCCESS;
+    }
+    catch (...) {
+        return rasterm_c_detail::failure(RASTERM_ERROR_RENDERING_EXCEPTION,
+                                         "Unexpected exception while invalidating Presenter.");
+    }
+}
 
 rasterm_result rasterm_presenter_submit(rasterm_presenter* presenter,
                                         const rasterm_frame* frame)
