@@ -200,27 +200,29 @@ jobs:
           ctest --test-dir build/asan -C RelWithDebInfo --output-on-failure
 
   windows-fuzz-smoke:
-    name: clang-cl Bounded Fuzz Smoke
+    name: Clang Bounded Fuzz Smoke
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure fuzz targets
         run: >-
-          cmake -S . -B build/fuzz -A x64 -T ClangCL
+          cmake -S . -B build/fuzz -G "Ninja Multi-Config"
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
           -DRASTERM_BUILD_FUZZERS=ON
           -DRASTERM_ENABLE_ASAN=ON
           -DRASTERM_WARNINGS_AS_ERRORS=ON
 
       - name: Build Fuzz Targets
-        run: cmake --build build/fuzz --config RelWithDebInfo --parallel
+        run: cmake --build build/fuzz --config Release --parallel
 
       - name: Run Bounded Seeded Fuzz Smoke
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           foreach ($name in @('frame_validation', 'damage_rectangles', 'c_structures', 'sixel_writer')) {
-            $target = "build/fuzz/RelWithDebInfo/rasterm-fuzz-$name.exe"
+            $target = "build/fuzz/Release/rasterm-fuzz-$name.exe"
             $corpus = "validation/tests/fuzz/corpus/$name"
             & $target $corpus -max_total_time=15 -timeout=5 -print_final_stats=1
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

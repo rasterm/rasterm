@@ -12,15 +12,22 @@ include(cmake/rastermSources.cmake)
 option(RASTERM_BUILD_EXAMPLES "Build rasterm examples" OFF)
 option(RASTERM_BUILD_TESTS "Build rasterm smoke tests" OFF)
 option(RASTERM_BUILD_BENCHMARKS "Build rasterm microbenchmarks" OFF)
-option(RASTERM_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
+option(RASTERM_BUILD_FUZZERS "Build libFuzzer targets (GNU-style Clang driver only)" OFF)
 option(RASTERM_BUILD_RASTERMUI "Build the experimental rastermUI library" OFF)
 option(RASTERM_BUILD_SHARED_C_API "Build the optional shared C ABI library" OFF)
 option(RASTERM_ENABLE_ASAN "Enable AddressSanitizer for first party targets" OFF)
 option(RASTERM_WARNINGS_AS_ERRORS "Treat first party compiler warnings as errors" ON)
 
 set(RASTERM_MSVC_FRONTEND OFF)
-if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" OR
+   CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     set(RASTERM_MSVC_FRONTEND ON)
+endif()
+
+set(RASTERM_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+if(RASTERM_BUILD_FUZZERS)
+    # LLVM's Windows libFuzzer runtime requires the static MSVC runtime.
+    set(RASTERM_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 if(RASTERM_MSVC_FRONTEND)
@@ -62,7 +69,7 @@ target_include_directories(rasterm
 set_target_properties(rasterm PROPERTIES
     OUTPUT_NAME rasterm
     DEBUG_POSTFIX d
-    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+    MSVC_RUNTIME_LIBRARY "${RASTERM_MSVC_RUNTIME_LIBRARY}"
 )
 
 if(RASTERM_MSVC_FRONTEND)
@@ -247,15 +254,24 @@ if(RASTERM_BUILD_TESTS AND RASTERM_ENABLE_ASAN AND RASTERM_MSVC_FRONTEND)
 endif()
 
 if(RASTERM_BUILD_FUZZERS)
-    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        message(FATAL_ERROR "RASTERM_BUILD_FUZZERS requires Clang with libFuzzer support.")
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR RASTERM_MSVC_FRONTEND)
+        message(FATAL_ERROR
+            "RASTERM_BUILD_FUZZERS requires the GNU-style Clang driver so it can link "
+            "the sanitizer runtimes. Use clang/clang++ with Ninja, not the ClangCL "
+            "Visual Studio toolset.")
     endif()
+    if(WIN32 AND NOT RASTERM_ENABLE_ASAN)
+        message(FATAL_ERROR "Windows libFuzzer targets require RASTERM_ENABLE_ASAN=ON.")
+    endif()
+    target_compile_options(rasterm PRIVATE -fsanitize=fuzzer-no-link)
     foreach(fuzzer IN ITEMS frame_validation damage_rectangles c_structures sixel_writer)
         add_executable(rasterm-fuzz-${fuzzer} validation/tests/fuzz/${fuzzer}.cpp)
         target_link_libraries(rasterm-fuzz-${fuzzer} PRIVATE rasterm::rasterm)
         target_include_directories(rasterm-fuzz-${fuzzer} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-        target_compile_options(rasterm-fuzz-${fuzzer} PRIVATE -fsanitize=fuzzer,address)
+        target_compile_options(rasterm-fuzz-${fuzzer} PRIVATE -fsanitize=fuzzer-no-link)
         target_link_options(rasterm-fuzz-${fuzzer} PRIVATE -fsanitize=fuzzer,address)
+        set_target_properties(rasterm-fuzz-${fuzzer} PROPERTIES
+            MSVC_RUNTIME_LIBRARY "${RASTERM_MSVC_RUNTIME_LIBRARY}")
     endforeach()
 endif()
 

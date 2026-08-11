@@ -23,6 +23,11 @@ and Semantic Versioning.
 - Use a portable scalar damage comparison fallback outside x86 SSE2 builds.
 - Document alpha bearing packed formats as ignoring alpha in the 1.2 rendering contract.
 
+### Fixed
+
+- Link Windows fuzz targets through the Clang driver with the required libFuzzer/ASan
+  runtimes, and instrument the core library for coverage guided fuzzing.
+
 ## [1.1.0] - 2026-08-10
 
 ### Added

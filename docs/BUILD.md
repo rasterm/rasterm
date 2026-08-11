@@ -212,5 +212,17 @@ cpack --config build/core/CPackConfig.cmake -C Release -G ZIP
 cpack --config build/core/CPackSourceConfig.cmake -G ZIP
 ```
 
-Fuzz targets require Clang with libFuzzer and `RASTERM_BUILD_FUZZERS=ON`. Release
-dependencies are pinned by the vcpkg baseline in `vcpkg.json`.
+Windows fuzz targets require the GNU style Clang driver, Ninja, AddressSanitizer, and the
+static MSVC runtime. The Visual Studio `ClangCL` generator invokes `lld-link` directly and
+therefore cannot add the libFuzzer and sanitizer driver runtimes. Use the Release
+configuration because LLVM's Windows libFuzzer does not support `/DEBUG` links. Configure
+the targets with:
+
+```powershell
+cmake -S . -B build/fuzz -G "Ninja Multi-Config" `
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ `
+  -DRASTERM_BUILD_FUZZERS=ON -DRASTERM_ENABLE_ASAN=ON
+cmake --build build/fuzz --config Release --parallel
+```
+
+Release dependencies are pinned by the vcpkg baseline in `vcpkg.json`.
