@@ -221,12 +221,33 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
           foreach ($name in @('frame_validation', 'damage_rectangles', 'c_structures', 'sixel_writer')) {
-            $target = "build/fuzz/Release/rasterm-fuzz-$name.exe"
+            $targets = @(Get-ChildItem build/fuzz -Recurse -File -Filter "rasterm-fuzz-$name.exe")
+            if ($targets.Count -ne 1) {
+              throw "Expected one executable for $name, found $($targets.Count)."
+            }
+            $target = $targets[0].FullName
             $corpus = "validation/tests/fuzz/corpus/$name"
-            & $target $corpus -max_total_time=15 -timeout=5 -print_final_stats=1
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $artifactDirectory = "build/fuzz/artifacts/$name"
+            New-Item -ItemType Directory -Force -Path $artifactDirectory | Out-Null
+            Write-Host "::group::Fuzz $name"
+            Write-Host "Executable: $target"
+            & $target $corpus -seed=1337 -max_total_time=15 -timeout=5 `
+              -detect_leaks=0 -artifact_prefix="$artifactDirectory/" -print_final_stats=1
+            $exitCode = $LASTEXITCODE
+            Write-Host "Exit code: $exitCode"
+            Write-Host "::endgroup::"
+            if ($exitCode -ne 0) { throw "Fuzzer $name failed with exit code $exitCode." }
           }
+
+      - name: Upload Fuzz Failure Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rasterm-fuzz-failures
+          path: build/fuzz/artifacts
+          if-no-files-found: ignore
 
   windows-bindings:
     name: Rust and Python Bindings
