@@ -263,6 +263,18 @@ if(RASTERM_BUILD_FUZZERS)
     if(WIN32 AND NOT RASTERM_ENABLE_ASAN)
         message(FATAL_ERROR "Windows libFuzzer targets require RASTERM_ENABLE_ASAN=ON.")
     endif()
+    execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}" -print-resource-dir
+        OUTPUT_VARIABLE RASTERM_CLANG_RESOURCE_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE RASTERM_CLANG_RESOURCE_RESULT)
+    if(NOT RASTERM_CLANG_RESOURCE_RESULT EQUAL 0)
+        message(FATAL_ERROR "Unable to locate the Clang compiler runtime directory.")
+    endif()
+    find_file(RASTERM_ASAN_RUNTIME_DLL
+        NAMES clang_rt.asan_dynamic-x86_64.dll
+        HINTS "${RASTERM_CLANG_RESOURCE_DIR}/lib/windows"
+        NO_DEFAULT_PATH REQUIRED)
     target_compile_options(rasterm PRIVATE -fsanitize=fuzzer-no-link)
     foreach(fuzzer IN ITEMS frame_validation damage_rectangles c_structures sixel_writer)
         add_executable(rasterm-fuzz-${fuzzer} validation/tests/fuzz/${fuzzer}.cpp)
@@ -272,6 +284,11 @@ if(RASTERM_BUILD_FUZZERS)
         target_link_options(rasterm-fuzz-${fuzzer} PRIVATE -fsanitize=fuzzer,address)
         set_target_properties(rasterm-fuzz-${fuzzer} PROPERTIES
             MSVC_RUNTIME_LIBRARY "${RASTERM_MSVC_RUNTIME_LIBRARY}")
+        add_custom_command(TARGET rasterm-fuzz-${fuzzer} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${RASTERM_ASAN_RUNTIME_DLL}"
+                "$<TARGET_FILE_DIR:rasterm-fuzz-${fuzzer}>"
+            VERBATIM)
     endforeach()
 endif()
 

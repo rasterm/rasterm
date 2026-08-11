@@ -216,7 +216,8 @@ Windows fuzz targets require the GNU style Clang driver, Ninja, AddressSanitizer
 static MSVC runtime. The Visual Studio `ClangCL` generator invokes `lld-link` directly and
 therefore cannot add the libFuzzer and sanitizer driver runtimes. Use the Release
 configuration because LLVM's Windows libFuzzer does not support `/DEBUG` links. Configure
-the targets with:
+the targets with the commands below. CMake copies Clang's matching dynamic ASan runtime
+beside each executable so the fuzzers do not depend on a machine specific `PATH`:
 
 ```powershell
 cmake -S . -B build/fuzz -G "Ninja Multi-Config" `

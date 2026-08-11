@@ -26,7 +26,8 @@ and Semantic Versioning.
 ### Fixed
 
 - Link Windows fuzz targets through the Clang driver with the required libFuzzer/ASan
-  runtimes, and instrument the core library for coverage guided fuzzing.
+  runtimes, deploy the dynamic ASan runtime beside each executable, and instrument the
+  core library for coverage guided fuzzing.
 
 ## [1.1.0] - 2026-08-10
 

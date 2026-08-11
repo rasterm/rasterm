@@ -228,6 +228,11 @@ jobs:
               throw "Expected one executable for $name, found $($targets.Count)."
             }
             $target = $targets[0].FullName
+            $runtime = @(Get-ChildItem (Split-Path -Parent $target) -File `
+              -Filter 'clang_rt.asan_dynamic-*.dll')
+            if ($runtime.Count -eq 0) {
+              throw "The Clang ASan runtime was not deployed beside $target."
+            }
             $corpus = "validation/tests/fuzz/corpus/$name"
             $artifactDirectory = "build/fuzz/artifacts/$name"
             New-Item -ItemType Directory -Force -Path $artifactDirectory | Out-Null
