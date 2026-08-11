@@ -44,6 +44,8 @@ public:
         consumedGeneration = 0;
         stopping = false;
         running = true;
+        renderingActive = false;
+        resetRequested = false;
         try {
             worker = std::thread(&Impl::presentLoop, this);
         }
@@ -88,6 +90,10 @@ public:
                 return;
             }
             if (running) {
+                if (pendingGeneration != consumedGeneration) {
+                    ++statistics.cancelledFrames;
+                    consumedGeneration = pendingGeneration;
+                }
                 stopping = true;
             }
         }
@@ -110,7 +116,10 @@ public:
             renderingDamage.clear();
             pendingLifetime.reset();
             renderingLifetime.reset();
+            renderingActive = false;
+            resetRequested = false;
         }
+        idle.notify_all();
         engine.shutdown();
     }
 
@@ -120,10 +129,54 @@ public:
         return running;
     }
 
+    bool waitUntilIdle(const std::chrono::milliseconds timeout)
+    {
+        std::unique_lock lock(mutex);
+        if (worker.joinable() && worker.get_id() == std::this_thread::get_id()) {
+            latestStatus = Status::failure(
+                ErrorCode::InvalidArgument, "Presenter drain is forbidden from a worker callback.");
+            return false;
+        }
+        if (!running || stopping) {
+            latestStatus = Status::failure(ErrorCode::PresenterStopped,
+                                           "Presenter is not running.");
+            return false;
+        }
+        if (timeout.count() < 0) {
+            latestStatus = Status::failure(ErrorCode::InvalidArgument,
+                                           "Presenter drain timeout must not be negative.");
+            return false;
+        }
+        const bool completed = idle.wait_for(lock, timeout, [&] {
+            return pendingGeneration == consumedGeneration && !renderingActive && !resetRequested;
+        });
+        latestStatus = completed
+            ? Status::success()
+            : Status::failure(ErrorCode::TimedOut, "Presenter did not become idle before the timeout.");
+        return completed;
+    }
+
+    bool invalidate()
+    {
+        {
+            std::lock_guard lock(mutex);
+            if (!running || stopping) {
+                ++statistics.rejectedFrames;
+                latestStatus = Status::failure(ErrorCode::PresenterStopped,
+                                               "Presenter is not running.");
+                return false;
+            }
+            resetRequested = true;
+            latestStatus = Status::success();
+        }
+        ready.notify_one();
+        return true;
+    }
+
     bool submit(const FrameView& frame)
     {
         if (!frame.isValid()) {
-            return false;
+            return reject(ErrorCode::InvalidArgument, "Packed frame validation failed.");
         }
 
         try {
@@ -131,12 +184,16 @@ public:
                 bytesPerPixel(frame.format);
             const std::size_t frameBytes = rowBytes * static_cast<std::size_t>(frame.height);
             bool replaced = false;
+            FrameMetadata droppedMetadata{};
             {
                 std::lock_guard lock(mutex);
                 if (!running || stopping) {
-                    return false;
+                    return rejectLocked(ErrorCode::PresenterStopped, "Presenter is not running.");
                 }
+                FrameMetadata replacedMetadata{};
                 if (pendingGeneration != consumedGeneration) {
+                    replacedMetadata = pendingKind == FrameKind::Packed
+                        ? pendingFrame.metadata : pendingIndexedFrame.metadata;
                     ++statistics.replacedFrames;
                     replaced = true;
                 }
@@ -161,8 +218,10 @@ public:
                 pendingLifetime.reset();
                 ++pendingGeneration;
                 ++statistics.submittedFrames;
+                latestStatus = Status::success();
+                if (replaced) droppedMetadata = replacedMetadata;
             }
-            if (replaced) emitDropped(frame.metadata);
+            if (replaced) emitDropped(droppedMetadata);
             ready.notify_one();
             return true;
         }
@@ -177,19 +236,23 @@ public:
     bool submit(const IndexedFrameView& frame)
     {
         if (!frame.hasValidIndices()) {
-            return false;
+            return reject(ErrorCode::InvalidArgument, "Indexed frame validation failed.");
         }
 
         try {
             const std::size_t rowBytes = static_cast<std::size_t>(frame.width);
             const std::size_t frameBytes = rowBytes * static_cast<std::size_t>(frame.height);
             bool replaced = false;
+            FrameMetadata droppedMetadata{};
             {
                 std::lock_guard lock(mutex);
                 if (!running || stopping) {
-                    return false;
+                    return rejectLocked(ErrorCode::PresenterStopped, "Presenter is not running.");
                 }
+                FrameMetadata replacedMetadata{};
                 if (pendingGeneration != consumedGeneration) {
+                    replacedMetadata = pendingKind == FrameKind::Packed
+                        ? pendingFrame.metadata : pendingIndexedFrame.metadata;
                     ++statistics.replacedFrames;
                     replaced = true;
                 }
@@ -211,11 +274,14 @@ public:
                 };
                 copyDamage(frame.metadata.damage, pendingDamage, pendingIndexedFrame.metadata.damage);
                 pendingKind = FrameKind::Indexed;
+                pendingIndexedTrusted = true;
                 pendingLifetime.reset();
                 ++pendingGeneration;
                 ++statistics.submittedFrames;
+                latestStatus = Status::success();
+                if (replaced) droppedMetadata = replacedMetadata;
             }
-            if (replaced) emitDropped(frame.metadata);
+            if (replaced) emitDropped(droppedMetadata);
             ready.notify_one();
             return true;
         }
@@ -229,7 +295,7 @@ public:
 
     bool submit(OwnedFrame&& frame)
     {
-        if (!frame.isValid()) return false;
+        if (!frame.isValid()) return reject(ErrorCode::InvalidArgument, "Owned frame validation failed.");
         try {
             auto owner = std::make_shared<OwnedFrame>(std::move(frame));
             return submitShared(SharedFrameView{ owner->view(), std::move(owner) });
@@ -241,10 +307,11 @@ public:
 
     bool submit(OwnedIndexedFrame&& frame)
     {
-        if (!frame.isValid()) return false;
+        if (!frame.isValid()) return reject(ErrorCode::InvalidArgument, "Owned indexed frame validation failed.");
         try {
             auto owner = std::make_shared<OwnedIndexedFrame>(std::move(frame));
-            return submitShared(SharedIndexedFrameView{ owner->view(), std::move(owner) });
+            return submitSharedIndexed(
+                SharedIndexedFrameView{ owner->view(), std::move(owner) }, true);
         }
         catch (const std::bad_alloc&) {
             return allocationFailure();
@@ -253,12 +320,16 @@ public:
 
     bool submitShared(const SharedFrameView& shared)
     {
-        if (!shared.isValid()) return false;
+        if (!shared.isValid()) return reject(ErrorCode::InvalidArgument, "Shared frame validation failed.");
         bool replaced = false;
+        FrameMetadata droppedMetadata{};
         {
             std::lock_guard lock(mutex);
-            if (!running || stopping) return false;
+            if (!running || stopping) return rejectLocked(ErrorCode::PresenterStopped, "Presenter is not running.");
+            FrameMetadata replacedMetadata{};
             if (pendingGeneration != consumedGeneration) {
+                replacedMetadata = pendingKind == FrameKind::Packed
+                    ? pendingFrame.metadata : pendingIndexedFrame.metadata;
                 ++statistics.replacedFrames;
                 replaced = true;
             }
@@ -270,20 +341,32 @@ public:
             pendingKind = FrameKind::Packed;
             ++pendingGeneration;
             ++statistics.submittedFrames;
+            latestStatus = Status::success();
+            if (replaced) droppedMetadata = replacedMetadata;
         }
-        if (replaced) emitDropped(shared.frame.metadata);
+        if (replaced) emitDropped(droppedMetadata);
         ready.notify_one();
         return true;
     }
 
     bool submitShared(const SharedIndexedFrameView& shared)
     {
-        if (!shared.isValid()) return false;
+        return submitSharedIndexed(shared, false);
+    }
+
+    bool submitSharedIndexed(const SharedIndexedFrameView& shared, const bool trusted)
+    {
+        const bool valid = trusted ? shared.lifetime && shared.frame.isValid() : shared.isValid();
+        if (!valid) return reject(ErrorCode::InvalidArgument, "Shared indexed frame validation failed.");
         bool replaced = false;
+        FrameMetadata droppedMetadata{};
         {
             std::lock_guard lock(mutex);
-            if (!running || stopping) return false;
+            if (!running || stopping) return rejectLocked(ErrorCode::PresenterStopped, "Presenter is not running.");
+            FrameMetadata replacedMetadata{};
             if (pendingGeneration != consumedGeneration) {
+                replacedMetadata = pendingKind == FrameKind::Packed
+                    ? pendingFrame.metadata : pendingIndexedFrame.metadata;
                 ++statistics.replacedFrames;
                 replaced = true;
             }
@@ -293,10 +376,13 @@ public:
             pendingIndexedFrame = shared.frame;
             pendingLifetime = shared.lifetime;
             pendingKind = FrameKind::Indexed;
+            pendingIndexedTrusted = trusted;
             ++pendingGeneration;
             ++statistics.submittedFrames;
+            latestStatus = Status::success();
+            if (replaced) droppedMetadata = replacedMetadata;
         }
-        if (replaced) emitDropped(shared.frame.metadata);
+        if (replaced) emitDropped(droppedMetadata);
         ready.notify_one();
         return true;
     }
@@ -322,7 +408,21 @@ private:
     bool allocationFailure()
     {
         std::lock_guard lock(mutex);
+        ++statistics.rejectedFrames;
         latestStatus = Status::failure(ErrorCode::OutOfMemory, "Out of memory.");
+        return false;
+    }
+
+    bool reject(const ErrorCode code, const char* message)
+    {
+        std::lock_guard lock(mutex);
+        return rejectLocked(code, message);
+    }
+
+    bool rejectLocked(const ErrorCode code, const char* message)
+    {
+        ++statistics.rejectedFrames;
+        latestStatus = Status::failure(code, message);
         return false;
     }
 
@@ -363,9 +463,19 @@ private:
             Clock::time_point presentationStart;
             {
                 std::unique_lock lock(mutex);
-                ready.wait(lock, [&] { return stopping || pendingGeneration != consumedGeneration; });
+                ready.wait(lock, [&] {
+                    return stopping || resetRequested || pendingGeneration != consumedGeneration;
+                });
                 if (stopping) {
                     return;
+                }
+                if (resetRequested) {
+                    resetRequested = false;
+                    lock.unlock();
+                    engine.reset();
+                    lock.lock();
+                    idle.notify_all();
+                    continue;
                 }
                 if (minimumInterval != Clock::duration::zero()) {
                     ready.wait_until(lock, nextFrame, [&] { return stopping; });
@@ -379,6 +489,7 @@ private:
                 renderingDamage.swap(pendingDamage);
                 renderingLifetime.swap(pendingLifetime);
                 kind = pendingKind;
+                renderingIndexedTrusted = pendingIndexedTrusted;
                 if (kind == FrameKind::Packed) {
                     frame = pendingFrame;
                     if (!renderingLifetime) {
@@ -403,23 +514,34 @@ private:
                     }
                 }
                 consumedGeneration = pendingGeneration;
+                renderingActive = true;
                 presentationStart = Clock::now();
             }
 
             const RenderStats rendered = kind == FrameKind::Packed
                 ? engine.renderFrame(frame)
-                : engine.renderFrame(indexedFrame);
+                : renderingIndexedTrusted
+                    ? Presenter::renderValidatedIndexed(engine, indexedFrame)
+                    : engine.renderFrame(indexedFrame);
             nextFrame = presentationStart + minimumInterval;
             {
                 std::lock_guard lock(mutex);
                 statistics.latestRender = rendered;
                 if (rendered.error != ErrorCode::None) {
                     latestStatus = engine.status();
+                    ++statistics.failedFrames;
                 }
-                if (rendered.rendered) {
+                else if (rendered.rendered) {
                     ++statistics.presentedFrames;
+                    latestStatus = Status::success();
                 }
+                else {
+                    ++statistics.unchangedFrames;
+                    latestStatus = Status::success();
+                }
+                renderingActive = false;
             }
+            idle.notify_all();
         }
     }
 
@@ -428,6 +550,7 @@ private:
     std::thread worker;
     mutable std::mutex mutex;
     std::condition_variable ready;
+    std::condition_variable idle;
     std::vector<std::uint8_t> pending;
     std::vector<std::uint8_t> rendering;
     std::vector<RgbColor> pendingPalette;
@@ -439,12 +562,16 @@ private:
     FrameView pendingFrame{};
     IndexedFrameView pendingIndexedFrame{};
     FrameKind pendingKind = FrameKind::Packed;
+    bool pendingIndexedTrusted = false;
+    bool renderingIndexedTrusted = false;
     std::uint64_t pendingGeneration = 0;
     std::uint64_t consumedGeneration = 0;
     PresenterStats statistics{};
     Status latestStatus{};
     bool running = false;
     bool stopping = false;
+    bool renderingActive = false;
+    bool resetRequested = false;
 };
 
 Presenter::Presenter() : impl(new Impl) {}
@@ -520,6 +647,21 @@ Status Presenter::status() const
     return impl ? impl->status()
                 : Status::failure(ErrorCode::InitializationException,
                                   "Presenter implementation is unavailable.");
+}
+
+bool Presenter::waitUntilIdle(const std::chrono::milliseconds timeout)
+{
+    return impl && impl->waitUntilIdle(timeout);
+}
+
+bool Presenter::invalidate()
+{
+    return impl && impl->invalidate();
+}
+
+RenderStats Presenter::renderValidatedIndexed(Engine& engine, const IndexedFrameView& frame)
+{
+    return engine.renderValidatedIndexedFrame(frame);
 }
 
 }

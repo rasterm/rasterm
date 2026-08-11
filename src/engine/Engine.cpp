@@ -33,7 +33,19 @@ bool validOptions(const EngineOptions& options) noexcept
     const auto validDither = options.color.realtimeDither == DitherMode::None ||
         options.color.realtimeDither == DitherMode::OrderedBayer4x4 ||
         options.color.realtimeDither == DitherMode::FloydSteinberg;
-    return validQuality && validToneMap && validDither &&
+    const auto validSupport = [](const CapabilitySupport support) {
+        return support == CapabilitySupport::Unknown ||
+            support == CapabilitySupport::Unsupported || support == CapabilitySupport::Supported;
+    };
+    const TerminalGeometry& geometry = options.terminalOverrides.geometry;
+    const bool validGeometry = geometry.columns >= 0 && geometry.rows >= 0 &&
+        geometry.pixelWidth >= 0 && geometry.pixelHeight >= 0 &&
+        geometry.cellPixelWidth >= 0 && geometry.cellPixelHeight >= 0 &&
+        ((geometry.cellPixelWidth == 0) == (geometry.cellPixelHeight == 0));
+    return validQuality && validToneMap && validDither && validGeometry &&
+        options.encoder.paletteRefreshFrames >= 0 && options.encoder.maximumThreads >= 0 &&
+        validSupport(options.terminalOverrides.sixel) &&
+        validSupport(options.terminalOverrides.synchronizedOutput) &&
         std::isfinite(options.backpressureThresholdMilliseconds) &&
         options.backpressureThresholdMilliseconds >= 0.0 &&
         std::isfinite(options.color.outputPeakNits) && options.color.outputPeakNits > 0.0f &&
@@ -116,18 +128,19 @@ public:
                                        latestStatus.message);
                     return latestStatus;
                 }
-                if (options.requireSixelSupport &&
-                    detectedCapabilities.sixel != CapabilitySupport::Supported) {
-                    console.restore();
-                    emit({ .type = EventType::UnsupportedCapability,
-                           .error = ErrorCode::UnsupportedTerminal });
-                    return fail(ErrorCode::UnsupportedTerminal,
-                                "SIXEL support could not be confirmed for the active terminal.");
-                }
             }
             else {
                 detectedCapabilities = {};
                 detectedCapabilities.customOutput = true;
+            }
+            applyOverrides(detectedCapabilities);
+            if (options.requireSixelSupport &&
+                detectedCapabilities.sixel != CapabilitySupport::Supported) {
+                console.restore();
+                emit({ .type = EventType::UnsupportedCapability,
+                       .error = ErrorCode::UnsupportedTerminal });
+                return fail(ErrorCode::UnsupportedTerminal,
+                            "SIXEL support could not be confirmed for the active terminal.");
             }
 
             RendererOptions rendererOptions;
@@ -137,6 +150,7 @@ public:
             rendererOptions.useSynchronizedOutput = options.useSynchronizedOutput &&
                 detectedCapabilities.synchronizedOutput != CapabilitySupport::Unsupported;
             rendererOptions.maximumOutputBytes = options.maximumOutputBytes;
+            rendererOptions.outputChunkBytes = options.encoder.outputChunkBytes;
             if (detectedCapabilities.geometry.cellPixelWidth > 0 &&
                 detectedCapabilities.geometry.cellPixelHeight > 0) {
                 rendererOptions.cellPixels = {
@@ -161,6 +175,12 @@ public:
                 std::max(0, options.color.adaptivePaletteLockFrames);
             rendererOptions.sixel.sceneCutThreshold =
                 std::clamp(options.color.sceneCutThreshold, 0.0f, 1.0f);
+            rendererOptions.sixel.persistPaletteRegisters =
+                options.encoder.persistPaletteRegisters;
+            rendererOptions.sixel.paletteRefreshFrames = options.encoder.paletteRefreshFrames;
+            rendererOptions.sixel.maximumThreads = options.encoder.maximumThreads;
+            rendererOptions.sixel.independentRegionQuantization =
+                options.encoder.independentRegionQuantization;
             activeOutput = options.output != nullptr ? options.output : &stdoutOutput;
             renderer = std::make_unique<Renderer>(*activeOutput, rendererOptions);
             if (!renderer->good()) {
@@ -214,12 +234,15 @@ public:
 
     RenderStats renderFrame(const FrameView& frame)
     {
+        const auto validationStart = std::chrono::steady_clock::now();
         if (!initialized || !renderer || !frame.isValid() || !validMetadata(frame.metadata)) {
             return invalidFrame("Packed frame validation failed.");
         }
+        const auto validationEnd = std::chrono::steady_clock::now();
 
         try {
             refreshTerminalGeometry();
+            const auto conversionStart = std::chrono::steady_clock::now();
             FrameView unpacked = frame;
             const ColorMetadata color = frame.metadata.color;
             const bool alreadySrgb = color.transfer == TransferFunction::Srgb &&
@@ -264,8 +287,17 @@ public:
                 };
             }
             const FrameView colorManaged = colorConverter.toSrgb(unpacked, options.color);
-            return record(renderer->render(colorManaged), colorManaged.width, colorManaged.height,
-                          colorManaged.metadata);
+            const auto conversionEnd = std::chrono::steady_clock::now();
+            RenderResult rendered = renderer->render(colorManaged);
+            rendered.scratchBytes += convertedFrame.capacity() + colorConverter.scratchCapacity();
+            RenderStats result = record(rendered, colorManaged.width, colorManaged.height,
+                                        colorManaged.metadata);
+            result.validationMilliseconds =
+                std::chrono::duration<double, std::milli>(validationEnd - validationStart).count();
+            result.conversionMilliseconds =
+                std::chrono::duration<double, std::milli>(conversionEnd - conversionStart).count();
+            latestStats = result;
+            return result;
         }
         catch (const std::bad_alloc&) {
             renderer->reset();
@@ -284,13 +316,27 @@ public:
 
     RenderStats renderFrame(const IndexedFrameView& frame)
     {
+        const auto validationStart = std::chrono::steady_clock::now();
         if (!initialized || !renderer || !frame.hasValidIndices() ||
             !validMetadata(frame.metadata)) {
             return invalidFrame("Indexed frame validation failed.");
         }
+        const auto validationEnd = std::chrono::steady_clock::now();
+        RenderStats result = renderValidatedIndexedFrame(frame);
+        result.validationMilliseconds =
+            std::chrono::duration<double, std::milli>(validationEnd - validationStart).count();
+        latestStats = result;
+        return result;
+    }
+
+    RenderStats renderValidatedIndexedFrame(const IndexedFrameView& frame)
+    {
+        if (!initialized || !renderer || !frame.isValid() || !validMetadata(frame.metadata)) {
+            return invalidFrame("Indexed frame validation failed.");
+        }
         try {
             refreshTerminalGeometry();
-            return record(renderer->render(frame), frame.width, frame.height, frame.metadata);
+            return record(renderer->renderValidated(frame), frame.width, frame.height, frame.metadata);
         }
         catch (const std::bad_alloc&) {
             renderer->reset();
@@ -360,6 +406,9 @@ public:
             .outputFailures = outputFailures,
             .backpressureEvents = backpressureEvents,
             .payloadLimitDrops = payloadLimitDrops,
+            .wireBytes = result.wireBytes,
+            .scratchBytes = result.scratchBytes,
+            .outputCapacityBytes = result.outputCapacityBytes,
         };
         if (result.error != ErrorCode::None) {
             latestStatus = Status::failure(result.error, renderErrorMessage(result.error));
@@ -368,7 +417,29 @@ public:
                    .frameId = metadata.frameId,
                    .timestampNanoseconds = metadata.timestampNanoseconds });
         }
+        else {
+            latestStatus = Status::success();
+        }
         return latestStats;
+    }
+
+    void applyOverrides(TerminalCapabilities& capabilities) const noexcept
+    {
+        const TerminalOverrides& overrides = options.terminalOverrides;
+        if (overrides.sixel != CapabilitySupport::Unknown) capabilities.sixel = overrides.sixel;
+        if (overrides.synchronizedOutput != CapabilitySupport::Unknown) {
+            capabilities.synchronizedOutput = overrides.synchronizedOutput;
+        }
+        const TerminalGeometry& source = overrides.geometry;
+        TerminalGeometry& destination = capabilities.geometry;
+        if (source.columns > 0) destination.columns = source.columns;
+        if (source.rows > 0) destination.rows = source.rows;
+        if (source.pixelWidth > 0) destination.pixelWidth = source.pixelWidth;
+        if (source.pixelHeight > 0) destination.pixelHeight = source.pixelHeight;
+        if (source.cellPixelWidth > 0) {
+            destination.cellPixelWidth = source.cellPixelWidth;
+            destination.cellPixelHeight = source.cellPixelHeight;
+        }
     }
 
     void refreshTerminalGeometry()
@@ -376,7 +447,10 @@ public:
         if (options.output != nullptr) {
             return;
         }
-        const TerminalGeometry geometry = console.refreshGeometry();
+        TerminalCapabilities refreshed = detectedCapabilities;
+        refreshed.geometry = console.refreshGeometry();
+        applyOverrides(refreshed);
+        const TerminalGeometry geometry = refreshed.geometry;
         if (geometry.columns <= 0 || geometry.rows <= 0 ||
             (geometry.columns == detectedCapabilities.geometry.columns &&
              geometry.rows == detectedCapabilities.geometry.rows &&
@@ -469,6 +543,7 @@ public:
         if (renderer) {
             renderer->reset();
         }
+        colorConverter.reset();
         latestStats = {};
         lastFrameTime = {};
     }
@@ -540,6 +615,11 @@ RenderStats Engine::renderFrame(const FrameView& frame)
 RenderStats Engine::renderFrame(const IndexedFrameView& frame)
 {
     return impl ? impl->renderFrame(frame) : RenderStats{};
+}
+
+RenderStats Engine::renderValidatedIndexedFrame(const IndexedFrameView& frame)
+{
+    return impl ? impl->renderValidatedIndexedFrame(frame) : RenderStats{};
 }
 
 RenderStats Engine::renderFrame(const std::uint8_t* data, const int width, const int height,
