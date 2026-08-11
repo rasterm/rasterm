@@ -46,7 +46,7 @@
   <PropertyGroup Label="Vcpkg">
     <VcpkgUseStatic>false</VcpkgUseStatic>
     <VcpkgEnableManifest>true</VcpkgEnableManifest>
-    <VcpkgManifestRoot>$(SolutionDir)</VcpkgManifestRoot>
+    <VcpkgManifestRoot>$(ProjectDir)</VcpkgManifestRoot>
     <RastermVcpkgInstalledDir Condition="'$(VcpkgInstalledDir)'!=''">$(VcpkgInstalledDir)</RastermVcpkgInstalledDir>
     <RastermVcpkgInstalledDir Condition="'$(VcpkgInstalledDir)'==''">$(VcpkgRoot)installed\</RastermVcpkgInstalledDir>
   </PropertyGroup>

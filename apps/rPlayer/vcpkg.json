@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "rasterm",
+  "version-semver": "1.0.0",
+  "description": "rPlayer multimedia via rasterm graphics engine.",
+  "homepage": "https://github.com/rasterm/rasterm",
+  "license": "Apache-2.0",
+  "supports": "windows & x64",
+  "builtin-baseline": "7e19f3c64cb636ee21f41bfe8558a6dfaae6236f",
+  "dependencies": [
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": ["avcodec", "avformat", "swresample", "swscale"]
+    },
+    "miniaudio",
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": ["ffmpeg", "intrinsics", "jpeg", "msmf", "png", "thread", "tiff", "webp"]
+    }
+  ]
+}
