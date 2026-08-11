@@ -7,6 +7,11 @@ immutable non owning descriptions.
 `Presenter` is thread safe for concurrent submission and statistics queries. Its
 capacity one mailbox replaces stale frames rather than blocking producers.
 
+`waitUntilIdle` is a bounded synchronization point for sink acceptance. It can block on
+an in flight `OutputSink` call and therefore must not run from a Presenter worker
+callback. `invalidate` is ordered on the worker and forces a full next render. Neither
+operation adds another frame queue.
+
 - `submit(FrameView)` and its indexed overload copy all referenced data.
 - `submit(OwnedFrame&&)` and its indexed overload move ownership into the mailbox.
 - `submitShared(...)` performs no copy. Its `shared_ptr<const void>` token must own every

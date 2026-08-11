@@ -1,6 +1,6 @@
 # Build and Installation
 
-Run these commands from the rasterm repository root in PowerShell. rasterm 1.1 supports
+Run these commands from the rasterm repository root in PowerShell. rasterm 1.2 supports
 Windows x64 and C++20. C++ consumers use the static library; language bindings can use
 the optional shared C ABI. You need Visual Studio 2022 v143
 with the Desktop development with C++ workload, CMake 3.24+, and Windows Terminal 1.22+
