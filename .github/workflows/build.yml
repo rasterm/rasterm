@@ -181,6 +181,51 @@ jobs:
             exit 1
           fi
 
+  windows-asan:
+    name: MSVC x64 AddressSanitizer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AddressSanitizer Tests
+        run: >-
+          cmake -S . -B build/asan -A x64
+          -DRASTERM_BUILD_TESTS=ON
+          -DRASTERM_ENABLE_ASAN=ON
+          -DRASTERM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build and run AddressSanitizer Tests
+        run: |
+          cmake --build build/asan --config RelWithDebInfo --parallel
+          ctest --test-dir build/asan -C RelWithDebInfo --output-on-failure
+
+  windows-fuzz-smoke:
+    name: clang-cl Bounded Fuzz Smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure fuzz targets
+        run: >-
+          cmake -S . -B build/fuzz -A x64 -T ClangCL
+          -DRASTERM_BUILD_FUZZERS=ON
+          -DRASTERM_ENABLE_ASAN=ON
+          -DRASTERM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build Fuzz Targets
+        run: cmake --build build/fuzz --config RelWithDebInfo --parallel
+
+      - name: Run Bounded Seeded Fuzz Smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($name in @('frame_validation', 'damage_rectangles', 'c_structures', 'sixel_writer')) {
+            $target = "build/fuzz/RelWithDebInfo/rasterm-fuzz-$name.exe"
+            $corpus = "validation/tests/fuzz/corpus/$name"
+            & $target $corpus -max_total_time=15 -timeout=5 -print_final_stats=1
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
   windows-bindings:
     name: Rust and Python Bindings
     runs-on: windows-latest
@@ -228,12 +273,12 @@ jobs:
           $wheelPath = $wheels[0].FullName
           python -m pip install --no-deps --target build/wheel-test $wheelPath
           $env:PYTHONPATH = "$pwd/build/wheel-test"
-          python -c "import rasterm; assert rasterm.version() == (1, 1, 0)"
+          python -c "import rasterm; assert rasterm.version() == (1, 2, 0)"
 
   release-master:
     name: Publish rasterm Release
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: [windows-x64, windows-clang-cl, windows-mingw64, windows-bindings]
+    needs: [windows-x64, windows-clang-cl, windows-mingw64, windows-asan, windows-fuzz-smoke, windows-bindings]
     runs-on: windows-latest
     permissions:
       contents: write
