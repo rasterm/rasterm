@@ -108,6 +108,9 @@
     <ClCompile Include="src\encoder\SixelSimdAvx2.cpp">
       <AdditionalOptions>/arch:AVX2 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="src\encoder\SixelSimdAvx512.cpp">
+      <AdditionalOptions>/arch:AVX512 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="src\encoder\SixelWriter.cpp" />
     <ClCompile Include="src\render\Renderer.cpp" />
     <ClCompile Include="src\output\StdoutSink.cpp" />

@@ -9,6 +9,7 @@ set(RASTERM_CORE_SOURCES
     src/encoder/SixelEncoder.cpp
     src/encoder/SixelPalette.cpp
     src/encoder/SixelSimdAvx2.cpp
+    src/encoder/SixelSimdAvx512.cpp
     src/encoder/SixelWriter.cpp
     src/render/Renderer.cpp
     src/output/StdoutSink.cpp
