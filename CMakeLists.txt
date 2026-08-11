@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(rasterm VERSION 1.1.0 LANGUAGES C CXX)
+project(rasterm VERSION 1.2.0 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "rasterm currently supports Windows Terminal only.")
@@ -70,9 +70,11 @@ if(RASTERM_MSVC_FRONTEND)
         target_compile_options(rasterm PRIVATE /MP)
     endif()
     set_source_files_properties(src/encoder/SixelSimdAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    set_source_files_properties(src/encoder/SixelSimdAvx512.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(rasterm PRIVATE -Wall -Wextra -Wpedantic)
     set_source_files_properties(src/encoder/SixelSimdAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
+    set_source_files_properties(src/encoder/SixelSimdAvx512.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f")
 endif()
 
 if(MINGW)
@@ -206,6 +208,10 @@ if(RASTERM_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
     add_test(NAME rasterm.protocol-recovery COMMAND rasterm-protocol-recovery-tests)
+
+    add_executable(rasterm-state-machine-tests validation/tests/state_machine.cpp)
+    target_link_libraries(rasterm-state-machine-tests PRIVATE rasterm::rasterm)
+    add_test(NAME rasterm.state-machine COMMAND rasterm-state-machine-tests)
 
     add_executable(rasterm-terminal-owner-tests
         validation/tests/terminal_owner.cpp

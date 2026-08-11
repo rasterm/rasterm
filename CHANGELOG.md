@@ -3,6 +3,26 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Semantic Versioning.
 
+## [1.2.0] - 2026-08-11
+
+### Added
+
+- Bounded, frame-scoped SIXEL transactions with output limit and sink failure recovery.
+- Presenter drain/invalidate APIs, complete accepted frame outcomes, and stable rejection status.
+- Terminal capability and geometry overrides for custom and automatically detected output.
+- Validation/conversion timing plus wire, scratch, and output capacity statistics.
+- Corpus v5, randomized state machine coverage, and ASan/libFuzzer CI hardening.
+- Periodically refreshed persistent SIXEL palettes, completed transaction chunking,
+  independent regional quantization, a reusable parallel mapper, and AVX-512 dispatch.
+
+### Changed
+
+- Convert only supplied damaged regions when a compatible non-sRGB conversion cache exists.
+- Validate copied and owned indexed Presenter frames once while retaining worker side validation
+  for shared mutable input.
+- Use a portable scalar damage comparison fallback outside x86 SSE2 builds.
+- Document alpha bearing packed formats as ignoring alpha in the 1.2 rendering contract.
+
 ## [1.1.0] - 2026-08-10
 
 ### Added
