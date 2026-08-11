@@ -35,6 +35,14 @@ int main(void)
     options.flush = flush_bytes;
 
     rasterm_engine* engine = NULL;
+    options.maximum_encoder_threads = -1;
+    if (rasterm_engine_create(&options, &engine) != RASTERM_ERROR_INVALID_ARGUMENT ||
+        engine != NULL) return 1;
+    options.maximum_encoder_threads = 0;
+    options.palette_refresh_frames = -1;
+    if (rasterm_engine_create(&options, &engine) != RASTERM_ERROR_INVALID_ARGUMENT ||
+        engine != NULL) return 1;
+    options.palette_refresh_frames = 120;
     if (rasterm_engine_create(&options, &engine) != RASTERM_SUCCESS || engine == NULL) return 1;
     if (rasterm_c_api_version() != 1u) return 2;
 
@@ -116,9 +124,13 @@ int main(void)
         frame.height = 1;
         frame.stride = 6;
         if (rasterm_presenter_submit(presenter, &frame) != RASTERM_SUCCESS) return 13;
+        if (rasterm_presenter_wait_until_idle(presenter, 2000) != RASTERM_SUCCESS ||
+            rasterm_presenter_invalidate(presenter) != RASTERM_SUCCESS ||
+            rasterm_presenter_wait_until_idle(presenter, 2000) != RASTERM_SUCCESS) return 15;
         rasterm_presenter_stats_init(&presenter_stats);
         if (rasterm_presenter_get_stats(presenter, &presenter_stats) != RASTERM_SUCCESS ||
-            presenter_stats.submitted_frames != 1) return 14;
+            presenter_stats.submitted_frames != 1 ||
+            presenter_stats.presented_frames != 1) return 14;
         rasterm_presenter_destroy(presenter);
     }
     return 0;

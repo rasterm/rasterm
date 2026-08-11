@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-extern "C" int FuzzerInputTest(const std::uint8_t* data, const std::size_t size)
+extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_t size)
 {
     if (size < 3) return 0;
     const int width = 1 + data[0] % 32;
@@ -25,8 +25,10 @@ extern "C" int FuzzerInputTest(const std::uint8_t* data, const std::size_t size)
         indices[index] = size > index + 3 ? data[index + 3] % colors : 0;
     }
     std::string output;
-    rasterm::emitRasterAttributes(output, width, height);
-    rasterm::emitPalette(output, { palette.data(), palette.size() });
-    rasterm::emitIndexedFrame(output, indices, width, height, colors);
+    const std::size_t limit = size > 3 ? data[3] : 0;
+    rasterm::SixelOutput checked(output, limit);
+    rasterm::emitRasterAttributes(checked, width, height);
+    rasterm::emitPalette(checked, { palette.data(), palette.size() });
+    rasterm::emitIndexedFrame(checked, indices, width, height, colors);
     return 0;
 }

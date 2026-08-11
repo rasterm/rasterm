@@ -128,6 +128,19 @@ int main()
             scrollingMode <= image) return 21;
     }
 
+    {
+        FaultSink sink;
+        rasterm::TerminalRenderer terminal(sink);
+        sink.clearBytes();
+        if (!terminal.drawAtHome(sixel, false, 5) || sink.chunks.size() < 4 ||
+            rasterm::test::MicrosoftSixelHarness{}.parse(sink.bytes).complete == false) return 24;
+
+        sink.clearBytes();
+        sink.failWriteAfter(4);
+        if (terminal.drawAtHome(sixel, false, 5)) return 25;
+        if (count(sink.bytes, "\x1bP") != count(sink.bytes, "\x1b\\")) return 26;
+    }
+
     DcsFaultSink sink;
     rasterm::Renderer renderer(sink, {
         .enableDirtyRegions = true,

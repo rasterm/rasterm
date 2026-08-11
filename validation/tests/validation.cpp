@@ -64,6 +64,14 @@ int main()
     if (indexed.isValid()) return 9;
 
     Sink sink;
+    rasterm::Engine invalidTuning;
+    rasterm::EngineOptions invalidOptions{ .output = &sink };
+    invalidOptions.encoder.maximumThreads = -1;
+    if (invalidTuning.initialize(invalidOptions)) return 10;
+    invalidOptions.encoder.maximumThreads = 0;
+    invalidOptions.encoder.paletteRefreshFrames = -1;
+    if (invalidTuning.initialize(invalidOptions)) return 10;
+
     rasterm::Engine engine;
     if (!engine.initialize({ .output = &sink })) return 10;
     const auto rejected = engine.renderFrame(bytes.data(), 1, 1, 3, invalidFormat);

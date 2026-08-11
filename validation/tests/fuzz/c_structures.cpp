@@ -12,7 +12,7 @@ int32_t writeBytes(void*, const char*, size_t) { return 1; }
 int32_t flushBytes(void*) { return 1; }
 }
 
-extern "C" int FuzzerInputTest(const std::uint8_t* data, const std::size_t size)
+extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_t size)
 {
     if (size < 32) return 0;
     rasterm_engine_options options;
