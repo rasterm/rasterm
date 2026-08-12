@@ -28,7 +28,6 @@ jobs:
         run: >-
           cmake -S . -B build/ci -A x64
           -DRASTERM_BUILD_TESTS=ON
-          -DRASTERM_BUILD_EXAMPLES=ON
           -DRASTERM_BUILD_BENCHMARKS=ON
           -DRASTERM_WARNINGS_AS_ERRORS=ON
 
@@ -36,6 +35,11 @@ jobs:
         run: |
           cmake --build build/ci --config ${{ matrix.configuration }} --parallel
           ctest --test-dir build/ci -C ${{ matrix.configuration }} --output-on-failure
+
+      - name: Build rasterm Examples
+        run: |
+          cmake -S apps/examples -B apps/examples/build -A x64
+          cmake --build apps/examples/build --config ${{ matrix.configuration }} --parallel
 
       - name: Smoke Test Benchmark Corpus
         if: matrix.configuration == 'Release'
@@ -113,7 +117,6 @@ jobs:
         run: >-
           cmake -S . -B build/clang-cl -A x64 -T ClangCL
           -DRASTERM_BUILD_TESTS=ON
-          -DRASTERM_BUILD_EXAMPLES=ON
           -DRASTERM_BUILD_BENCHMARKS=ON
           -DRASTERM_WARNINGS_AS_ERRORS=ON
 
@@ -121,6 +124,11 @@ jobs:
         run: |
           cmake --build build/clang-cl --config Release --parallel
           ctest --test-dir build/clang-cl -C Release --output-on-failure
+
+      - name: Build rasterm Examples
+        run: |
+          cmake -S apps/examples -B apps/examples/build -A x64 -T ClangCL
+          cmake --build apps/examples/build --config Release --parallel
 
       - name: Smoke Test Benchmark Corpus
         shell: pwsh
@@ -153,7 +161,6 @@ jobs:
           cmake -S . -B build/mingw -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DRASTERM_BUILD_TESTS=ON \
-            -DRASTERM_BUILD_EXAMPLES=ON \
             -DRASTERM_BUILD_BENCHMARKS=ON \
             -DRASTERM_WARNINGS_AS_ERRORS=ON
           cmake --build build/mingw --parallel
@@ -161,6 +168,12 @@ jobs:
           RASTERM_BENCH_ITERATIONS=5 ./build/mingw/rasterm-encoder-benchmark.exe >/dev/null
           cmake --install build/mingw --prefix build/install
           cmake -DROOT="$PWD/build/install" -DINSTALL_TREE=ON -P cmake/VerifyReleaseContents.cmake
+
+      - name: Build rasterm Examples
+        run: |
+          cmake -S apps/examples -B apps/examples/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build apps/examples/build --parallel
 
       - name: Verify Installed pkg-config Consumers
         run: |

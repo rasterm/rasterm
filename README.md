@@ -68,12 +68,17 @@ include/rasterm/        public C++ and C API
 src/                    private engine implementation
 apps/examples/          compiled minimal consumers
 apps/rPlayer/           media application
+apps/Termirror/         live Windows desktop mirror
 bindings/               Rust and Python bindings over the C ABI
 validation/tests/       correctness, ABI, consumer, stress, and fuzz validation
 validation/benchmarks/  deterministic performance corpus and baselines
 docs/                   public documentation
 docs/internal/          engineering/integration material
 ```
+
+Standalone applications and examples build under their own `apps/<name>/build`
+directories. The root `build/` directory is reserved for the engine and its
+validation/install artifacts.
 
 ## Documentation
 
