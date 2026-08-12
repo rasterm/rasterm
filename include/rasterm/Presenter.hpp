@@ -36,6 +36,7 @@ public:
     [[nodiscard]] bool invalidate();
 
     /* copies use a capacity one mailbox and never wait for terminal output.
+       replacing a compatible pending regional frame preserves accumulated damage.
        shared submissions retain lifetime through presentation lifetime
        must own pixels, palettes, damage rectangles, and referenced metadata. */
 

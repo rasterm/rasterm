@@ -114,6 +114,8 @@ public:
             renderingPalette.clear();
             pendingDamage.clear();
             renderingDamage.clear();
+            pendingDamageSupplied = false;
+            renderingDamageSupplied = false;
             pendingLifetime.reset();
             renderingLifetime.reset();
             renderingActive = false;
@@ -197,6 +199,11 @@ public:
                     ++statistics.replacedFrames;
                     replaced = true;
                 }
+                const bool compatibleDamage = !replaced ||
+                    (pendingKind == FrameKind::Packed
+                        ? pendingFrame.width == frame.width && pendingFrame.height == frame.height
+                        : pendingIndexedFrame.width == frame.width &&
+                            pendingIndexedFrame.height == frame.height);
 
                 pending.resize(frameBytes);
                 for (int row = 0; row < frame.height; ++row) {
@@ -212,7 +219,8 @@ public:
                     .format = frame.format,
                     .metadata = frame.metadata,
                 };
-                copyDamage(frame.metadata.damage, pendingDamage, pendingFrame.metadata.damage);
+                mergePendingDamage(frame.metadata.damage, replaced, compatibleDamage,
+                                   pendingFrame.metadata.damage);
                 pendingKind = FrameKind::Packed;
                 pendingPalette.clear();
                 pendingLifetime.reset();
@@ -256,6 +264,11 @@ public:
                     ++statistics.replacedFrames;
                     replaced = true;
                 }
+                const bool compatibleDamage = !replaced ||
+                    (pendingKind == FrameKind::Packed
+                        ? pendingFrame.width == frame.width && pendingFrame.height == frame.height
+                        : pendingIndexedFrame.width == frame.width &&
+                            pendingIndexedFrame.height == frame.height);
 
                 pending.resize(frameBytes);
                 for (int row = 0; row < frame.height; ++row) {
@@ -272,7 +285,8 @@ public:
                     .palette = { pendingPalette.data(), pendingPalette.size() },
                     .metadata = frame.metadata,
                 };
-                copyDamage(frame.metadata.damage, pendingDamage, pendingIndexedFrame.metadata.damage);
+                mergePendingDamage(frame.metadata.damage, replaced, compatibleDamage,
+                                   pendingIndexedFrame.metadata.damage);
                 pendingKind = FrameKind::Indexed;
                 pendingIndexedTrusted = true;
                 pendingLifetime.reset();
@@ -333,10 +347,17 @@ public:
                 ++statistics.replacedFrames;
                 replaced = true;
             }
+            const bool compatibleDamage = !replaced ||
+                (pendingKind == FrameKind::Packed
+                    ? pendingFrame.width == shared.frame.width &&
+                        pendingFrame.height == shared.frame.height
+                    : pendingIndexedFrame.width == shared.frame.width &&
+                        pendingIndexedFrame.height == shared.frame.height);
             pending.clear();
             pendingPalette.clear();
-            pendingDamage.clear();
             pendingFrame = shared.frame;
+            mergePendingDamage(shared.frame.metadata.damage, replaced, compatibleDamage,
+                               pendingFrame.metadata.damage);
             pendingLifetime = shared.lifetime;
             pendingKind = FrameKind::Packed;
             ++pendingGeneration;
@@ -370,10 +391,17 @@ public:
                 ++statistics.replacedFrames;
                 replaced = true;
             }
+            const bool compatibleDamage = !replaced ||
+                (pendingKind == FrameKind::Packed
+                    ? pendingFrame.width == shared.frame.width &&
+                        pendingFrame.height == shared.frame.height
+                    : pendingIndexedFrame.width == shared.frame.width &&
+                        pendingIndexedFrame.height == shared.frame.height);
             pending.clear();
             pendingPalette.clear();
-            pendingDamage.clear();
             pendingIndexedFrame = shared.frame;
+            mergePendingDamage(shared.frame.metadata.damage, replaced, compatibleDamage,
+                               pendingIndexedFrame.metadata.damage);
             pendingLifetime = shared.lifetime;
             pendingKind = FrameKind::Indexed;
             pendingIndexedTrusted = trusted;
@@ -426,14 +454,23 @@ private:
         return false;
     }
 
-    static void copyDamage(const DamageView source, std::vector<DamageRect>& storage,
-                           DamageView& destination)
+    void mergePendingDamage(const DamageView source, const bool replaced,
+                            const bool compatible, DamageView& destination)
     {
-        storage.clear();
-        if (source.supplied && source.count > 0) {
-            storage.assign(source.rectangles, source.rectangles + source.count);
+        if (!replaced) {
+            pendingDamage.clear();
+            pendingDamageSupplied = source.supplied;
         }
-        destination = { storage.empty() ? nullptr : storage.data(), storage.size(), source.supplied };
+        else if (!compatible || !pendingDamageSupplied || !source.supplied) {
+            pendingDamage.clear();
+            pendingDamageSupplied = false;
+        }
+        if (pendingDamageSupplied && source.count > 0) {
+            pendingDamage.insert(pendingDamage.end(), source.rectangles,
+                                 source.rectangles + source.count);
+        }
+        destination = { pendingDamage.empty() ? nullptr : pendingDamage.data(),
+                        pendingDamage.size(), pendingDamageSupplied };
     }
 
     void emitDropped(const FrameMetadata metadata) const noexcept
@@ -487,31 +524,28 @@ private:
                 rendering.swap(pending);
                 renderingPalette.swap(pendingPalette);
                 renderingDamage.swap(pendingDamage);
+                std::swap(renderingDamageSupplied, pendingDamageSupplied);
                 renderingLifetime.swap(pendingLifetime);
                 kind = pendingKind;
                 renderingIndexedTrusted = pendingIndexedTrusted;
                 if (kind == FrameKind::Packed) {
                     frame = pendingFrame;
-                    if (!renderingLifetime) {
-                        frame.data = rendering.data();
-                        frame.metadata.damage = {
-                            renderingDamage.empty() ? nullptr : renderingDamage.data(),
-                            renderingDamage.size(),
-                            pendingFrame.metadata.damage.supplied,
-                        };
-                    }
+                    if (!renderingLifetime) frame.data = rendering.data();
+                    frame.metadata.damage = {
+                        renderingDamage.empty() ? nullptr : renderingDamage.data(),
+                        renderingDamage.size(), renderingDamageSupplied,
+                    };
                 }
                 else {
                     indexedFrame = pendingIndexedFrame;
                     if (!renderingLifetime) {
                         indexedFrame.indices = rendering.data();
                         indexedFrame.palette = { renderingPalette.data(), renderingPalette.size() };
-                        indexedFrame.metadata.damage = {
-                            renderingDamage.empty() ? nullptr : renderingDamage.data(),
-                            renderingDamage.size(),
-                            pendingIndexedFrame.metadata.damage.supplied,
-                        };
                     }
+                    indexedFrame.metadata.damage = {
+                        renderingDamage.empty() ? nullptr : renderingDamage.data(),
+                        renderingDamage.size(), renderingDamageSupplied,
+                    };
                 }
                 consumedGeneration = pendingGeneration;
                 renderingActive = true;
@@ -564,6 +598,8 @@ private:
     FrameKind pendingKind = FrameKind::Packed;
     bool pendingIndexedTrusted = false;
     bool renderingIndexedTrusted = false;
+    bool pendingDamageSupplied = false;
+    bool renderingDamageSupplied = false;
     std::uint64_t pendingGeneration = 0;
     std::uint64_t consumedGeneration = 0;
     PresenterStats statistics{};

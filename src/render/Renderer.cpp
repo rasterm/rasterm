@@ -102,7 +102,7 @@ bool canPresentWithoutBottomScroll(const std::span<const DamageRegion> regions,
                                    const int frameHeight) noexcept
 {
     return std::none_of(regions.begin(), regions.end(), [frameHeight](const DamageRegion region) {
-        return region.y + region.height == frameHeight && region.height % 6 != 0;
+        return region.y + region.height == frameHeight;
     });
 }
 
@@ -345,8 +345,9 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         difference.regions = presentationDamage;
     }
 
-    // Positioned SIXEL uses scrolling mode. A patch ending at the bottom edge
-    // must contain complete sixel bands or Windows Terminal scrolls one row.
+    /* Windows Terminal can scroll when a positioned SIXEL reaches the final
+       terminal row, including patches composed of complete six pixel bands. */
+
     if (!difference.isFullFrame &&
         !canPresentWithoutBottomScroll(difference.regions, frame.height)) {
         difference.isFullFrame = true;

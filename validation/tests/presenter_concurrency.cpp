@@ -149,12 +149,19 @@ int main()
     outcomeOptions.engine.enableDirtyRegions = true;
     outcomeOptions.engine.events = { captureEvent, &events };
     if (!outcomes.initialize(outcomeOptions)) return 8;
-    auto identified = frame;
+    std::array<std::uint8_t, 100 * 100 * 3> outcomePixels{};
+    rasterm::FrameView identified{
+        outcomePixels.data(), 100, 100, 100 * 3, rasterm::PixelFormat::RGB24,
+    };
     identified.metadata.frameId = 1;
     if (!outcomes.submit(identified) || !waitFor(gate.blocked)) return 9;
+    const std::array<rasterm::DamageRect, 1> firstDamage{ rasterm::DamageRect{ 0, 1, 1, 1 } };
+    const std::array<rasterm::DamageRect, 1> secondDamage{ rasterm::DamageRect{ 99, 7, 1, 1 } };
     identified.metadata.frameId = 2;
+    identified.metadata.damage = { firstDamage.data(), firstDamage.size(), true };
     if (!outcomes.submit(identified)) return 10;
     identified.metadata.frameId = 3;
+    identified.metadata.damage = { secondDamage.data(), secondDamage.size(), true };
     if (!outcomes.submit(identified)) return 11;
     if (outcomes.waitUntilIdle(std::chrono::milliseconds(1)) ||
         outcomes.status().code != rasterm::ErrorCode::TimedOut) return 12;
@@ -166,6 +173,8 @@ int main()
         outcomeStats.submittedFrames != outcomeStats.presentedFrames +
             outcomeStats.unchangedFrames + outcomeStats.failedFrames +
             outcomeStats.replacedFrames + outcomeStats.cancelledFrames) return 15;
+    if (outcomeStats.latestRender.fullFrame) return 18;
+    if (outcomeStats.latestRender.dirtyRegions != 2) return 19;
     if (outcomes.submit(rasterm::FrameView{}) ||
         outcomes.status().code != rasterm::ErrorCode::InvalidArgument ||
         outcomes.stats().rejectedFrames != 1) return 16;
