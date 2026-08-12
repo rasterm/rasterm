@@ -21,11 +21,17 @@ fn local_library_directory() -> Option<PathBuf> {
     let root = manifest.ancestors().nth(3)?;
     [
         root.join("build/bindings/Release"),
-        root.join("build/rastermui/Release"),
+        root.join("build/rasterm/Release"),
+        root.join("apps/rastermUI/build/rasterm/Release"),
+        root.join("apps/examples/build/rasterm/Release"),
+        root.join("apps/SimpleNES/build/rasterm/Release"),
         root.join("build/ci/Release"),
         root.join("build/Release"),
         root.join("build/bindings/Debug"),
-        root.join("build/rastermui/Debug"),
+        root.join("build/rasterm/Debug"),
+        root.join("apps/rastermUI/build/rasterm/Debug"),
+        root.join("apps/examples/build/rasterm/Debug"),
+        root.join("apps/SimpleNES/build/rasterm/Debug"),
         root.join("build/ci/Debug"),
         root.join("build/Debug"),
     ]

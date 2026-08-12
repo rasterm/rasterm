@@ -9,11 +9,9 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 include(cmake/rastermSources.cmake)
 
-option(RASTERM_BUILD_EXAMPLES "Build rasterm examples" OFF)
 option(RASTERM_BUILD_TESTS "Build rasterm smoke tests" OFF)
 option(RASTERM_BUILD_BENCHMARKS "Build rasterm microbenchmarks" OFF)
 option(RASTERM_BUILD_FUZZERS "Build libFuzzer targets (GNU-style Clang driver only)" OFF)
-option(RASTERM_BUILD_RASTERMUI "Build the experimental rastermUI library" OFF)
 option(RASTERM_BUILD_SHARED_C_API "Build the optional shared C ABI library" OFF)
 option(RASTERM_ENABLE_ASAN "Enable AddressSanitizer for first party targets" OFF)
 option(RASTERM_WARNINGS_AS_ERRORS "Treat first party compiler warnings as errors" ON)
@@ -89,22 +87,6 @@ if(MINGW)
     # avoid a libstdc++ DLL ABI dependency while sharing the process wide winpthread runtime used by MinGW hosts such as RetroArch.
     
     target_link_options(rasterm INTERFACE -static-libstdc++)
-endif()
-
-if(RASTERM_BUILD_EXAMPLES)
-    add_executable(rasterm-example-c apps/examples/c_api.c)
-    add_executable(rasterm-example-synchronous apps/examples/synchronous.cpp)
-    add_executable(rasterm-example-presenter apps/examples/presenter.cpp)
-    add_executable(rasterm-example-indexed apps/examples/indexed.cpp)
-    add_executable(rasterm-example-custom-sink apps/examples/custom_sink.cpp)
-    add_executable(rasterm-example-damage apps/examples/damage_rectangles.cpp)
-    add_executable(rasterm-example-color apps/examples/color_metadata.cpp)
-    foreach(example IN ITEMS
-            rasterm-example-c rasterm-example-synchronous rasterm-example-presenter
-            rasterm-example-indexed rasterm-example-custom-sink rasterm-example-damage
-            rasterm-example-color)
-        target_link_libraries(${example} PRIVATE rasterm::rasterm)
-    endforeach()
 endif()
 
 if(RASTERM_BUILD_TESTS)
@@ -299,10 +281,11 @@ if(RASTERM_BUILD_BENCHMARKS)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
-endif()
-
-if(RASTERM_BUILD_RASTERMUI)
-    add_subdirectory(apps/rastermUI)
+    add_executable(rasterm-windows-terminal-sixel-repro
+        validation/benchmarks/windows_terminal_sixel_repro.cpp)
+    target_compile_features(rasterm-windows-terminal-sixel-repro PRIVATE cxx_std_20)
+    target_compile_definitions(rasterm-windows-terminal-sixel-repro PRIVATE
+        NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
 if(RASTERM_BUILD_SHARED_C_API)
