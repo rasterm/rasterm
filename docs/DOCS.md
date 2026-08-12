@@ -34,6 +34,7 @@ is the Windows Terminal backend used in rasterm 1.x.
 
 - [`bindings`](../bindings/) - safe Rust and typed Python bindings over C API v1
 - [`apps/rPlayer`](../apps/rPlayer/README.md) — image/video/audio application
+- [`apps/Termirror`](../apps/Termirror/README.md) — read only DXGI desktop/window region mirror
 - [`apps/SimpleNES`](../apps/SimpleNES/README.md) — native indexed/software framebuffer
 
 ## Project Policy

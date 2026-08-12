@@ -34,6 +34,7 @@ rasterm/
 |-- src/output/            OutputSink implementations and terminal presentation
 |-- src/platform/windows/  Windows console integration
 |-- apps/rPlayer/          Optional media player using the public API
+|-- apps/Termirror/        Native DXGI desktop capture using the public API
 |-- apps/examples/         Small public API consumers
 |-- validation/tests/      Runtime, ABI, fuzz, and installed-consumer verification
 |-- validation/benchmarks/ Reproducible performance corpus and baselines
@@ -87,9 +88,10 @@ new frame replaces the waiting frame instead of building a laggy queue.
 
 ## Application Boundary
 
-`apps/rPlayer` owns decoding, scaling, audio, clocks, adaptive resolution, and CSV metrics. It
-calls only public rasterm types. Protocol encoding, damage detection, terminal output, geometry,
-and presentation belong to the library. Media specific policies do not.
+`apps/rPlayer` owns decoding, scaling, audio, clocks, adaptive resolution, and CSV metrics.
+`apps/Termirror` owns DXGI capture, cursor composition, source scaling, and capture damage
+translation. Both call only public rasterm types. Protocol encoding, terminal output, geometry,
+and presentation belong to the library. Application-specific policies do not.
 
 ## Dependency Policy
 

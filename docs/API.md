@@ -30,7 +30,9 @@ call `submit*`, `stats`, `status`, and `shutdown`.
 
 It holds at most one waiting frame. If the worker falls behind, the newest submission
 replaces that waiting frame and increments `replacedFrames`. The producer does not wait
-for the terminal to finish drawing.
+for the terminal to finish drawing. Compatible regional replacements accumulate the
+replaced frame's damage so the newest pixels remain correct relative to the last frame
+that actually reached the terminal; a full frame or geometry changing replacement stays full.
 
 * `submit(FrameView)` and `submit(IndexedFrameView)` copy active pixel rows, palettes, damage rects, and metadata references before returning.
 * `submit(OwnedFrame&&)` and `submit(OwnedIndexedFrame&&)` move ownership into the presenter.
@@ -160,7 +162,8 @@ Example code is available in [`apps/examples`](../apps/examples/):
 * Damage rect usage
 * Color space configuration
 
-Enable examples in your build configuration with `-DRASTERM_BUILD_EXAMPLES=ON`.
+Build them independently with `scripts/build-examples.ps1`; their artifacts remain under
+`apps/examples/build`.
 
 ## Limitations
 
