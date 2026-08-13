@@ -4,8 +4,31 @@ rasterm lets C and C++ programs draw real pixel frames in Windows Terminal. Give
 packed or indexed framebuffer and it handles SIXEL encoding, terminal setup, frame
 scheduling, and cleanup for you.
 
+---
+
+RetroArch via rasterm
+
 https://github.com/user-attachments/assets/1e39653c-9c40-4073-88be-a63bd653373f
 
+---
+
+SimpleNES via rasterm
+
+https://github.com/user-attachments/assets/26cc1cac-35d5-483f-8968-f5603cf9e64f
+
+---
+
+rPlayer via rasterm
+
+https://github.com/user-attachments/assets/93bf0bce-6509-42fa-870c-476e0e5af298
+
+---
+
+Termirror via rasterm
+
+https://github.com/user-attachments/assets/119f5f8d-5fd1-4228-a7f8-e71870d7610d
+
+---
 
 ```text
 Application -> FrameView -> Engine/Presenter -> private backend -> OutputSink
