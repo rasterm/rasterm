@@ -7,8 +7,6 @@ file(GLOB_RECURSE first_party_sources
     "${ROOT}/include/rasterm/*.hpp"
     "${ROOT}/src/*.cpp"
     "${ROOT}/src/*.hpp"
-    "${ROOT}/apps/rPlayer/*.cpp"
-    "${ROOT}/apps/rPlayer/*.hpp"
     "${ROOT}/apps/examples/*.c"
     "${ROOT}/apps/examples/*.cpp"
     "${ROOT}/validation/*.c"

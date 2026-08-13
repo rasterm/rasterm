@@ -8,6 +8,7 @@ file(GLOB_RECURSE documentation
     "${ROOT}/apps/examples/*.md"
     "${ROOT}/apps/rPlayer/*.md"
     "${ROOT}/apps/SimpleNES/*.md"
+    "${ROOT}/apps/Termirror/*.md"
     "${ROOT}/validation/*.md")
 list(FILTER documentation EXCLUDE REGEX "/docs/internal/terminal-[^/]+/")
 list(APPEND documentation ${root_markdown})
