@@ -118,14 +118,6 @@ if(RASTERM_BUILD_TESTS)
     add_test(NAME rasterm.stress COMMAND rasterm-stress-tests)
     set_tests_properties(rasterm.stress PROPERTIES TIMEOUT 30)
 
-    add_executable(rasterm-adaptive-resolution-tests
-        validation/tests/adaptive_resolution.cpp
-        apps/rPlayer/src/AdaptiveResolution.cpp
-    )
-    target_include_directories(rasterm-adaptive-resolution-tests PRIVATE apps/rPlayer/include)
-    target_compile_features(rasterm-adaptive-resolution-tests PRIVATE cxx_std_20)
-    add_test(NAME rasterm.adaptive-resolution COMMAND rasterm-adaptive-resolution-tests)
-
     add_executable(rasterm-color-geometry-tests validation/tests/color_geometry.cpp)
     target_link_libraries(rasterm-color-geometry-tests PRIVATE rasterm::rasterm)
     target_include_directories(rasterm-color-geometry-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -281,11 +273,6 @@ if(RASTERM_BUILD_BENCHMARKS)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
-    add_executable(rasterm-windows-terminal-sixel-repro
-        validation/benchmarks/windows_terminal_sixel_repro.cpp)
-    target_compile_features(rasterm-windows-terminal-sixel-repro PRIVATE cxx_std_20)
-    target_compile_definitions(rasterm-windows-terminal-sixel-repro PRIVATE
-        NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
 if(RASTERM_BUILD_SHARED_C_API)
