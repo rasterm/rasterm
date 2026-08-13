@@ -35,6 +35,17 @@ int main()
         c.realtime_dither != static_cast<int>(cpp.color.realtimeDither) ||
         c.adaptive_palette_lock_frames != cpp.color.adaptivePaletteLockFrames ||
         c.scene_cut_threshold != cpp.color.sceneCutThreshold ||
+        c.sixel_support_override != static_cast<int>(cpp.terminalOverrides.sixel) ||
+        c.synchronized_output_override !=
+            static_cast<int>(cpp.terminalOverrides.synchronizedOutput) ||
+        c.override_columns != cpp.terminalOverrides.geometry.columns ||
+        c.override_cell_pixel_width != cpp.terminalOverrides.geometry.cellPixelWidth ||
+        (c.persist_palette_registers != 0) != cpp.encoder.persistPaletteRegisters ||
+        c.palette_refresh_frames != cpp.encoder.paletteRefreshFrames ||
+        c.output_chunk_bytes != cpp.encoder.outputChunkBytes ||
+        c.maximum_encoder_threads != cpp.encoder.maximumThreads ||
+        (c.independent_region_quantization != 0) !=
+            cpp.encoder.independentRegionQuantization ||
         c.output_context != nullptr || c.write != nullptr || c.flush != nullptr) return 1;
 
     rasterm_frame frame;
@@ -74,7 +85,9 @@ int main()
     if (stats.error != static_cast<int>(cppStats.error) ||
         (stats.rendered != 0) != cppStats.rendered ||
         stats.payload_bytes != cppStats.payloadBytes || stats.width != cppStats.width ||
-        stats.output_failures != cppStats.outputFailures) return 5;
+        stats.output_failures != cppStats.outputFailures ||
+        stats.wire_bytes != cppStats.wireBytes || stats.scratch_bytes != cppStats.scratchBytes ||
+        stats.validation_milliseconds != cppStats.validationMilliseconds) return 5;
 
     rasterm_terminal_capabilities capabilities;
     rasterm_terminal_capabilities_init(&capabilities);
@@ -90,6 +103,10 @@ int main()
     if (presenterStats.submitted_frames != cppPresenterStats.submittedFrames ||
         presenterStats.presented_frames != cppPresenterStats.presentedFrames ||
         presenterStats.replaced_frames != cppPresenterStats.replacedFrames ||
+        presenterStats.unchanged_frames != cppPresenterStats.unchangedFrames ||
+        presenterStats.failed_frames != cppPresenterStats.failedFrames ||
+        presenterStats.rejected_frames != cppPresenterStats.rejectedFrames ||
+        presenterStats.cancelled_frames != cppPresenterStats.cancelledFrames ||
         presenterStats.latest_render.error != static_cast<int>(cppPresenterStats.latestRender.error)) {
         return 7;
     }

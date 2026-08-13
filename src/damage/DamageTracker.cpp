@@ -4,7 +4,12 @@
 
 #include <algorithm>
 #include <cstring>
+#if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
 #include <emmintrin.h>
+#define RASTERM_HAS_SSE2 1
+#else
+#define RASTERM_HAS_SSE2 0
+#endif
 
 namespace rasterm {
 namespace {
@@ -12,6 +17,7 @@ namespace {
 bool rowsEqual(const std::uint8_t* current, const std::uint8_t* previous,
                const std::size_t bytes) noexcept
 {
+#if RASTERM_HAS_SSE2
     std::size_t offset = 0;
     for (; offset + sizeof(__m128i) <= bytes; offset += sizeof(__m128i)) {
         const __m128i left = _mm_loadu_si128(
@@ -24,6 +30,9 @@ bool rowsEqual(const std::uint8_t* current, const std::uint8_t* previous,
     }
     return offset == bytes ||
         std::memcmp(current + offset, previous + offset, bytes - offset) == 0;
+#else
+    return std::memcmp(current, previous, bytes) == 0;
+#endif
 }
 
 }
@@ -199,6 +208,12 @@ void DamageTracker::copyFrame(const std::uint8_t* data, const int width, const i
     previousHeight = height;
     previousBytesPerPixel = pixelBytes;
     previousFormatTag = formatTag;
+}
+
+std::size_t DamageTracker::scratchCapacity() const noexcept
+{
+    return previousFrame.capacity() + previousPalette.capacity() * sizeof(RgbColor) +
+        scratchRegions.capacity() * sizeof(DamageRegion);
 }
 
 }

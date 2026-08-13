@@ -1,1 +1,1 @@
-retroarch implementation is not finished.
+download the fork at https://github.com/rasterm/RetroArch (not finished)

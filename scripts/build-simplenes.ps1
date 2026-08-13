@@ -7,11 +7,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $true
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$coreBuild = Join-Path $repoRoot 'build\simplenes-core'
-$installRoot = Join-Path $repoRoot 'build\simplenes-install'
-$appBuild = Join-Path $repoRoot 'build\simplenes'
+$sourceRoot = Join-Path $repoRoot 'apps\SimpleNES'
+$appBuild = Join-Path $sourceRoot 'build'
 $cmake = (Get-Command cmake.exe -ErrorAction Stop).Source
 
 if ([string]::IsNullOrWhiteSpace($VcpkgRoot)) {
@@ -22,21 +22,9 @@ if (!(Test-Path -LiteralPath $toolchain)) {
     throw "The vcpkg CMake toolchain was not found at '$toolchain'."
 }
 
-& $cmake -S $repoRoot -B $coreBuild `
-    -DRASTERM_BUILD_TESTS=OFF `
-    -DRASTERM_WARNINGS_AS_ERRORS=ON
-if ($LASTEXITCODE -ne 0) { throw 'rasterm core configuration failed.' }
-
-& $cmake --build $coreBuild --config $Configuration --parallel $Jobs
-if ($LASTEXITCODE -ne 0) { throw 'rasterm core build failed.' }
-
-& $cmake --install $coreBuild --config $Configuration --prefix $installRoot
-if ($LASTEXITCODE -ne 0) { throw 'rasterm core installation failed.' }
-
-& $cmake -S (Join-Path $repoRoot 'apps\SimpleNES') -B $appBuild `
-    "-DCMAKE_PREFIX_PATH=$installRoot" `
+& $cmake -S $sourceRoot -B $appBuild -A x64 `
     "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
-    "-DVCPKG_MANIFEST_DIR=$repoRoot" `
+    "-DVCPKG_MANIFEST_DIR=$sourceRoot" `
     -DVCPKG_TARGET_TRIPLET=x64-windows
 if ($LASTEXITCODE -ne 0) { throw 'SimpleNES configuration failed.' }
 

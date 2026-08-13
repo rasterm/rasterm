@@ -15,4 +15,4 @@ categories = ["multimedia::images", "rendering"]
 keywords = ["terminal", "graphics", "sixel", "rendering"]
 
 [dependencies]
-rasterm-sys = { version = "1.1.0", path = "../rasterm-sys" }
+rasterm-sys = { version = "1.2.0", path = "../rasterm-sys" }

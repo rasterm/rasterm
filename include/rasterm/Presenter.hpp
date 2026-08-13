@@ -9,7 +9,11 @@
 #include <rasterm/IndexedFrame.hpp>
 #include <rasterm/Statistics.hpp>
 
+#include <chrono>
+
 namespace rasterm {
+
+class Engine;
 
 class Presenter {
 public:
@@ -28,8 +32,11 @@ public:
 
     void shutdown() noexcept;
     [[nodiscard]] bool isInitialized() const noexcept;
+    [[nodiscard]] bool waitUntilIdle(std::chrono::milliseconds timeout);
+    [[nodiscard]] bool invalidate();
 
     /* copies use a capacity one mailbox and never wait for terminal output.
+       replacing a compatible pending regional frame preserves accumulated damage.
        shared submissions retain lifetime through presentation lifetime
        must own pixels, palettes, damage rectangles, and referenced metadata. */
 
@@ -43,6 +50,8 @@ public:
     [[nodiscard]] Status status() const;
 
 private:
+    static RenderStats renderValidatedIndexed(Engine& engine, const IndexedFrameView& frame);
+
     class Impl;
     Impl* impl = nullptr;
 };

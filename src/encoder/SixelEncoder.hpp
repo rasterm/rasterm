@@ -113,6 +113,10 @@ namespace rasterm {
         bool useAdaptivePalette = false;            /* use content aware adaptive palette for maximum quality */
         int adaptivePaletteLockFrames = 12;
         float sceneCutThreshold = 0.30f;
+        bool persistPaletteRegisters = false;
+        int paletteRefreshFrames = 120;
+        int maximumThreads = 0;
+        bool independentRegionQuantization = false;
         PixelLayout inputLayout = PixelLayout::RGB; /* input channel order */
 
         /* preset convenience functions optimized for Windows Terminal compatibility */
@@ -168,6 +172,7 @@ namespace rasterm {
     struct FastColorAnalyzer;
     struct FastAdaptiveColorMapper;
     struct FastColorMapper;
+    class EncoderParallelExecutor;
 
     /* reusable encoder for video streams (avoids allocations) */
 
@@ -181,6 +186,18 @@ namespace rasterm {
         std::string_view encodeFrame(const IndexedFrameView& frame);
         std::string_view encodeRegion(const FrameView& frame, const DamageRegion& region);
         std::string_view encodeRegion(const IndexedFrameView& frame, const DamageRegion& region);
+        void prepareFrame(const FrameView& frame);
+        void prepareFrame(const IndexedFrameView& frame);
+        void prepareRegionalFrame(const FrameView& frame);
+        void prepareRegionalFrame(const IndexedFrameView& frame) { prepareFrame(frame); }
+        void prepareRegion(const FrameView& frame, const DamageRegion& region);
+        void prepareRegion(const IndexedFrameView&, const DamageRegion&) {}
+        void reset() noexcept;
+
+        void setOutputLimit(std::size_t maximumBytes) noexcept { outputLimit = maximumBytes; }
+        [[nodiscard]] bool outputLimitExceeded() const noexcept { return limitExceeded; }
+        [[nodiscard]] std::size_t outputCapacity() const noexcept { return outputBuffer.capacity(); }
+        [[nodiscard]] std::size_t scratchCapacity() const noexcept;
 
         [[nodiscard]] std::size_t lastEncodedBytes() const noexcept { return outputBuffer.size(); }
         [[nodiscard]] int lastColorCount() const noexcept { return lastColorCountValue; }
@@ -194,13 +211,22 @@ namespace rasterm {
         std::unique_ptr<FastColorAnalyzer> analyzer;
         std::unique_ptr<FastAdaptiveColorMapper> colorMapper;
         std::unique_ptr<FastColorMapper> fastColorMapper;
+        std::unique_ptr<EncoderParallelExecutor> parallelExecutor;
         std::vector<uint8_t> workingBuffer;
         int lastColorCountValue = 0;
         int paletteAge = 0;
         bool hasAdaptivePalette = false;
+        std::size_t outputLimit = 0;
+        bool limitExceeded = false;
+        bool adaptiveFramePrepared = false;
+        bool paletteRegistersValid = false;
+        std::uint64_t paletteSignature = 0;
+        int framesSincePaletteRefresh = 0;
 
         std::string_view encodeView(const FrameView& frame, PixelLayout layout);
         std::string_view encodeView(const IndexedFrameView& frame);
+        void beginLogicalFrame() noexcept;
+        [[nodiscard]] bool shouldEmitPalette(std::uint64_t signature) noexcept;
     };
 
     struct TerminalCellPixels { int cellWidth = 10; int cellHeight = 20; };

@@ -1,4 +1,4 @@
-# rasterm 1.1 API Reference
+# rasterm 1.2 API Reference
 
 This page explains how to use every public C++ type under `include/rasterm/`, including
 who owns each buffer, which calls are thread safe, where callbacks run, and how errors
@@ -7,7 +7,7 @@ are returned. The C ABI is summarized near the end and defined in
 
 ## Core Rules
 
-* rasterm 1.1 renders frames inside Windows Terminal. You supply the pixel data, and the library handles protocol encoding internally.
+* rasterm 1.2 renders frames inside Windows Terminal. You supply the pixel data, and the library handles protocol encoding internally.
 * `Engine` is synchronous and single threaded. `Presenter` is thread safe and handles asynchronous rendering with a queue depth of one.
 * Views are immutable and borrowed. Byte strides must be positive (top down).
 * Only one active `Engine` or `Presenter` can write to standard output (`stdout`) at a time per process. Trying to open a second default output instance will fail. However, you can create multiple independent instances if you supply custom output sinks.
@@ -30,11 +30,17 @@ call `submit*`, `stats`, `status`, and `shutdown`.
 
 It holds at most one waiting frame. If the worker falls behind, the newest submission
 replaces that waiting frame and increments `replacedFrames`. The producer does not wait
-for the terminal to finish drawing.
+for the terminal to finish drawing. Compatible regional replacements accumulate the
+replaced frame's damage so the newest pixels remain correct relative to the last frame
+that actually reached the terminal; a full frame or geometry changing replacement stays full.
 
 * `submit(FrameView)` and `submit(IndexedFrameView)` copy active pixel rows, palettes, damage rects, and metadata references before returning.
 * `submit(OwnedFrame&&)` and `submit(OwnedIndexedFrame&&)` move ownership into the presenter.
 * `submitShared(...)` avoids copying pixel data, but you must pass a lifetime token that keeps the underlying memory valid until presentation finishes.
+* `waitUntilIdle(timeout)` waits until every accepted frame has reached an outcome and
+  confirms sink acceptance only. It does not confirm terminal parsing or visibility.
+* `invalidate()` orders an Engine reset on the worker so the next rendered frame is a
+  full redraw. Immediate `shutdown()` cancels a waiting frame, drain first when the last frame must reach the sink.
 * Worker callbacks can call read only query functions. They must never initialize, move, shut down, destroy, or mutate the `Presenter` instance.
 
 ## Frames and Memory Ownership
@@ -53,13 +59,15 @@ for the terminal to finish drawing.
 | `SharedFrameView` | Borrowed packed view tied to a shared lifetime token (`std::shared_ptr`). |
 | `SharedIndexedFrameView` | Borrowed indexed view tied to a shared lifetime token (`std::shared_ptr`). |
 
-Supported `PixelFormat` types: `RGB24`, `BGR24`, `RGBA32`, `BGRA32`, `RGB565`, `XRGB1555`, and `RGBA4444`. Alpha channels are ignored. Packed 16-bit formats assume little endian byte ordering. Unrecognized formats fail validation via `isValidPixelFormat()` and `bytesPerPixel()`.
+Supported `PixelFormat` types: `RGB24`, `BGR24`, `RGBA32`, `BGRA32`, `RGB565`, `XRGB1555`, and `RGBA4444`. Alpha channels are ignored, including when alpha is zero, RGB components are encoded as stored and rasterm does not infer straight or premultiplied alpha. Packed 16-bit formats assume little endian byte ordering. Unrecognized formats fail validation via `isValidPixelFormat()` and `bytesPerPixel()`.
 
 ## Configuration and Color Settings
 
 | Type | Contract |
 | --- | --- |
 | `EngineOptions` | Copied on initialization. Callback contexts, file path strings, event contexts, and `output` pointers must remain valid for the lifetime of the engine. |
+| `TerminalOverrides` | Optional caller declared SIXEL/synchronized output support and geometry. `Unknown`/zero fields retain automatic detection or defaults. Effective values are returned by `capabilities()`. |
+| `EncoderTuning` | Controls palette register persistence/refresh, completed output chunk size, maximum mapping threads, and independent damaged region quantization. Set `maximumThreads=1`, `outputChunkBytes=0`, or the relevant boolean to disable an optimization. |
 | `PresenterOptions` | Copied on initialization. Set `maximumFramesPerSecond=0` for uncapped frame rates (negative or non finite numbers fail validation). |
 | `QualityProfile` | Select from `Realtime`, `AdaptiveVideo`, or `HighQuality`. |
 | `ColorMetadata` | Defines color space specs (primaries, transfer functions, matrices, reference whites, and mastering peaks). Input pixels are processed through these settings before conversion to sRGB output. |
@@ -81,6 +89,11 @@ A custom byte transport class. `write()` and `flush()` execute on whatever threa
 
 `write()` calls are all or nothing: returning `false` means no bytes were written. If an implementation hits a partial OS write, it must finish writing the remaining bytes before returning `true`. These methods are marked `noexcept`, returning `false` triggers internal engine error states.
 
+Completed SIXEL transactions may be delivered through multiple bounded `write()` calls.
+Palette definitions may be reused across frames, call `reset()` or `Presenter::invalidate()`
+after another producer changes terminal palette registers. rasterm periodically refreshes
+them and invalidates palette state after clear, output limits, or sink failures.
+
 ### Diagnostics and Events
 
 `DiagnosticOptions` holds a borrowed file path, callback pointer, and context pointer. `DiagnosticEvent` provides a severity level, error code, and a string message that is only valid for the duration of the callback. Diagnostics are kept separate from the terminal output stream.
@@ -89,7 +102,7 @@ A custom byte transport class. `write()` and `flush()` execute on whatever threa
 
 Callbacks run synchronously on whatever thread detects the issue (including the background Presenter thread), are marked `noexcept`, and must not store references to any borrowed views passed into them.
 
-`ErrorCode` values match across the C++ and C APIs. `Status` objects evaluate to `true` only when the code is `ErrorCode::None`. `RenderStats::error` holds the result of the last render operation; valid frames that haven't changed since the last render will set `rendered=false` without setting an error.
+`ErrorCode` values match across the C++ and C APIs. `Status` objects evaluate to `true` only when the code is `ErrorCode::None`. `RenderStats::error` holds the result of the last render operation, valid frames that haven't changed since the last render will set `rendered=false` without setting an error.
 
 ## Capabilities, Geometry, and Helpers
 
@@ -98,8 +111,8 @@ Callbacks run synchronously on whatever thread detects the issue (including the 
 | `CapabilitySupport` | Three state enum: `Unknown`, `Unsupported`, `Supported`. |
 | `TerminalCapabilities` | A snapshot of output features, VT status, and geometry. Custom sinks report capability support as `Unknown`. |
 | `TerminalGeometry` | Character cell and pixel counts. Call Engine queries after a resize event to refresh these values. |
-| `RenderStats` | Render timing, payload metrics, and frame drop counts. Note: terminal write time measures output transmission, not the terminal's actual display rendering time. |
-| `PresenterStats` | Thread safe snapshot of submitted, rendered, and dropped frame counts. |
+| `RenderStats` | Validation/conversion/encode/write timing, SIXEL payload bytes, accepted wire bytes, and reusable scratch/output capacity. Terminal write time and wire bytes end at sink acceptance, not actual display. |
+| `PresenterStats` | Thread safe submitted, presented, replaced, unchanged, failed, rejected, and shutdown cancelled counts. Every accepted frame reaches exactly one non rejected outcome. |
 | `Version` | Semantic versioning info. `version` and `abiVersion` are compile time constants. |
 | `Extent`, `Rect` | Geometry value types. |
 | `ScalePolicy`, `ScaleFilter` | Layout enums. rasterm calculates layouts using these types, but does not scale image data itself. |
@@ -124,13 +137,16 @@ Memory ownership rules match the C++ API: `rasterm_engine_render*` borrows memor
 | `rasterm_color_primaries`, `rasterm_transfer_function`, `rasterm_matrix_coefficients`, `rasterm_color_range`, `rasterm_tone_map_operator`, `rasterm_dither_mode` | Enums matching the C++ color options. |
 | `rasterm_write_callback`, `rasterm_flush_callback` | Context pointers that run on the caller or Presenter thread. Write callbacks are all or nothing, and byte pointers expire when the function returns. |
 | `rasterm_color_metadata`, `rasterm_damage_rect`, `rasterm_rgb_color` | Plain structs containing no pointer ownership. |
-| `rasterm_frame_metadata` | Value fields and a borrowed array of `damage_rects`. `Engine` borrows these; `Presenter` copies them on submission. |
+| `rasterm_frame_metadata` | Value fields and a borrowed array of `damage_rects`. `Engine` borrows these, `Presenter` copies them on submission. |
 | `rasterm_engine_options`, `rasterm_presenter_options` | Configuration structs. Callback contexts must stay allocated until the parent handle is destroyed. |
 | `rasterm_frame` | Borrowed pixel memory with positive stride. |
 | `rasterm_indexed_frame` | Borrowed index buffer and palette memory. |
 | `rasterm_render_stats`, `rasterm_terminal_capabilities`, `rasterm_presenter_stats` | Output structs populated up to the known ABI struct size. |
 
 Functions return `rasterm_result` codes. To fetch detailed error strings, call `rasterm_engine_last_error`, `rasterm_presenter_last_error`, or `rasterm_last_error`. Pass a NULL buffer first to get the required string length.
+
+`rasterm_presenter_wait_until_idle` and `rasterm_presenter_invalidate` mirror the C++
+Presenter operations. A drain timeout returns `RASTERM_ERROR_TIMED_OUT`, submitting to a stopped Presenter returns `RASTERM_ERROR_PRESENTER_STOPPED`.
 
 API exports, structs, and function signatures are fixed in [`capi.h`](../include/rasterm/capi.h) and validated via tests in `validation/tests/abi/`.
 
@@ -146,7 +162,8 @@ Example code is available in [`apps/examples`](../apps/examples/):
 * Damage rect usage
 * Color space configuration
 
-Enable examples in your build configuration with `-DRASTERM_BUILD_EXAMPLES=ON`.
+Build them independently with `scripts/build-examples.ps1`; their artifacts remain under
+`apps/examples/build`.
 
 ## Limitations
 

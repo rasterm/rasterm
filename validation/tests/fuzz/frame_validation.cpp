@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 
-extern "C" int FuzzerInputTest(const std::uint8_t* data, const std::size_t size)
+extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_t size)
 {
     if (size < 6) return 0;
     std::array<std::uint8_t, 64 * 512> pixels{};

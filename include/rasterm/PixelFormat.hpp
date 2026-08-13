@@ -16,6 +16,9 @@ enum class PixelFormat : std::int32_t {
     RGBA4444 = 6,
 };
 
+/* Alpha components in RGBA32, BGRA32, and RGBA4444 are ignored. Rasterm encodes the
+   stored RGB components directly and does not infer straight or premultiplied alpha. */
+
 [[nodiscard]] constexpr bool isValidPixelFormat(const PixelFormat format) noexcept
 {
     switch (format) {

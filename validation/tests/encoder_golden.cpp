@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <encoder/SixelEncoder.hpp>
+#include <encoder/SixelSimd.hpp>
 
 #include <rasterm/rasterm.hpp>
 
@@ -393,5 +394,74 @@ int main()
     if (chartMaximum > 0.16 || chartTotal / colorChecker.size() > 0.075) {
         return 12;
     }
+
+    auto persistentOptions = rasterm::SixelOptions::ForRealtimeVideo();
+    persistentOptions.persistPaletteRegisters = true;
+    persistentOptions.paletteRefreshFrames = 2;
+    rasterm::VideoSixelEncoder persistent(persistentOptions);
+    persistent.prepareFrame(rgbFrame);
+    const std::string firstPersistent(persistent.encodeFrame(rgbFrame));
+    persistent.prepareFrame(rgbFrame);
+    const std::string reusedPersistent(persistent.encodeFrame(rgbFrame));
+    persistent.prepareFrame(rgbFrame);
+    const std::string refreshedPersistent(persistent.encodeFrame(rgbFrame));
+    if (firstPersistent.find("#1;2;") == std::string::npos ||
+        reusedPersistent.find("#1;2;") != std::string::npos ||
+        refreshedPersistent.find("#1;2;") == std::string::npos ||
+        reusedPersistent.size() >= firstPersistent.size()) return 22;
+    persistent.reset();
+    persistent.prepareFrame(rgbFrame);
+    if (persistent.encodeFrame(rgbFrame).find("#1;2;") == std::string_view::npos) return 23;
+
+    std::array<std::uint8_t, 24 * 12 * 3> regionalPixels{};
+    for (int y = 0; y < 12; ++y) {
+        for (int x = 0; x < 24; ++x) {
+            regionalPixels[(y * 24 + x) * 3 + (x < 12 ? 0 : 2)] = 255;
+        }
+    }
+    const rasterm::FrameView regionalFrame{
+        regionalPixels.data(), 24, 12, 24 * 3, rasterm::PixelFormat::RGB24
+    };
+    auto regionalOptions = rasterm::SixelOptions::ForHighQualityVideo();
+    regionalOptions.dither = rasterm::DitherMode::None;
+    regionalOptions.independentRegionQuantization = true;
+    rasterm::VideoSixelEncoder regional(regionalOptions);
+    regional.prepareFrame(regionalFrame);
+    const rasterm::DamageRegion leftRegion{ 0, 0, 12, 12 };
+    regional.prepareRegion(regionalFrame, leftRegion);
+    const auto leftDecoded = parser.parse(regional.encodeRegion(regionalFrame, leftRegion));
+    const rasterm::DamageRegion rightRegion{ 12, 0, 12, 12 };
+    regional.prepareRegion(regionalFrame, rightRegion);
+    const auto rightDecoded = parser.parse(regional.encodeRegion(regionalFrame, rightRegion));
+    if (!leftDecoded.complete || leftDecoded.pixels.empty() ||
+        leftDecoded.pixels.front().red < 240 || leftDecoded.pixels.front().blue > 10) return 24;
+    if (!rightDecoded.complete || rightDecoded.pixels.empty() ||
+        rightDecoded.pixels.front().blue < 240 || rightDecoded.pixels.front().red > 10) return 25;
+
+    constexpr int parallelWidth = 256;
+    constexpr int parallelHeight = 128;
+    std::vector<std::uint8_t> parallelPixels(
+        static_cast<std::size_t>(parallelWidth) * parallelHeight * 3);
+    for (std::size_t index = 0; index < parallelPixels.size(); ++index) {
+        parallelPixels[index] = static_cast<std::uint8_t>((index * 73 + index / 11) & 0xff);
+    }
+    const rasterm::FrameView parallelFrame{
+        parallelPixels.data(), parallelWidth, parallelHeight, parallelWidth * 3,
+        rasterm::PixelFormat::RGB24
+    };
+    auto scalarOptions = rasterm::SixelOptions::ForRealtimeVideo();
+    scalarOptions.maximumThreads = 1;
+    rasterm::setSixelAvx2ModeForTesting(0);
+    rasterm::VideoSixelEncoder scalarEncoder(scalarOptions);
+    const std::string scalarOutput(scalarEncoder.encodeFrame(parallelFrame));
+    rasterm::setSixelAvx2ModeForTesting(-1);
+    auto parallelOptions = rasterm::SixelOptions::ForRealtimeVideo();
+    parallelOptions.maximumThreads = 4;
+    rasterm::VideoSixelEncoder parallelEncoder(parallelOptions);
+    if (scalarOutput != parallelEncoder.encodeFrame(parallelFrame)) return 26;
+
+    encoder.setOutputLimit(32);
+    if (!encoder.encodeFrame(chartFrame).empty() || !encoder.outputLimitExceeded() ||
+        encoder.lastEncodedBytes() > 32) return 14;
     return 0;
 }

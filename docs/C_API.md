@@ -40,6 +40,10 @@ Presenter copies pixels, palettes, metadata, and damage rectangles into a one fr
 mailbox. When it falls behind, a new submission replaces the waiting frame instead of
 adding more latency.
 
+`rasterm_presenter_wait_until_idle` provides a bounded drain to sink acceptance, and
+`rasterm_presenter_invalidate` forces the next rendered frame to be full. Immediate
+destruction cancels a waiting frame, drain first when final frame delivery is required.
+
 Custom output requires both `rasterm_write_callback` and `rasterm_flush_callback`.
 Callbacks and their context must remain valid until the handle is destroyed. Presenter
 callbacks execute on its worker thread; Engine callbacks execute synchronously on the
@@ -52,7 +56,19 @@ All owned handles are released with their matching destroy function. Null destro
 are harmless. No pointer stored in an input structure transfers ownership to rasterm.
 Packed and indexed strides are positive byte counts, bottom up/negative stride surfaces
 are rejected. RGB565 and 0RGB1555 use little endian Windows pixel words. RGBA4444 uses
-high to low R, G, B, A nibbles; alpha is discarded during terminal rendering.
+high to low R, G, B, A nibbles. Alpha is always ignored including zero alpha, the RGB
+components are encoded as stored with no straight/premultiplied alpha inference.
+
+Capability support and geometry override fields in `rasterm_engine_options` are optional.
+Zero/`RASTERM_CAPABILITY_UNKNOWN` retains automatic detection. Statistics distinguish
+SIXEL payload from accepted wire bytes and expose reusable scratch/output capacity plus
+validation and conversion time.
+
+The trailing encoder tuning fields control persistent palette registers, periodic refresh,
+completed transaction chunk size, mapping thread count, and independent regional
+quantization. `rasterm_engine_options_init` supplies the 1.2 defaults. Older zero initialized
+v1 structures retain self contained palettes, single call output, automatic threading, and
+global adaptive palettes.
 
 ## ABI Policy
 
@@ -66,7 +82,7 @@ high to low R, G, B, A nibbles; alpha is discarded during terminal rendering.
   thread safe.
 - Structures smaller than their v1 prefix return `RASTERM_ERROR_BUFFER_TOO_SMALL`;
   larger structures are accepted and unknown trailing bytes are ignored.
-- rasterm 1.1 keeps the static library as the default and can build an optional shared
+- rasterm 1.2 keeps the static library as the default and can build an optional shared
   C ABI with `RASTERM_BUILD_SHARED_C_API=ON`. Define `RASTERM_SHARED_LIBRARY` when
   compiling a C/C++ consumer against its import library.
 

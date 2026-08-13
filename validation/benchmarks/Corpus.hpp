@@ -6,11 +6,14 @@
 
 #include <cstdint>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace rasterm::benchmark {
 
-inline constexpr int corpusVersion = 3;
+inline constexpr int corpusVersion = 5;
+
+enum class PresenterSubmission { None, Copy, Owned, Shared };
 
 struct CorpusCase {
     CorpusCase(const std::string_view caseName, const int caseWidth, const int caseHeight,
@@ -29,6 +32,14 @@ struct CorpusCase {
     bool indexed = false;
     bool uiDamage = false;
     bool lowEntropyMotion = false;
+    bool multiRegion = false;
+    bool nonSrgbDamage = false;
+    std::size_t outputLimit = 0;
+    bool persistPaletteRegisters = true;
+    std::size_t outputChunkBytes = 64 * 1024;
+    int maximumThreads = 0;
+    bool independentRegionQuantization = true;
+    PresenterSubmission presenterSubmission = PresenterSubmission::None;
 };
 
 inline void fillRgb(CorpusCase& item, const int seed, const bool highMotion)
@@ -118,11 +129,21 @@ inline CorpusCase lowEntropyMotion()
 inline std::vector<CorpusCase> makeCorpus()
 {
     std::vector<CorpusCase> result;
-    result.reserve(11);
+    result.reserve(22);
 
     CorpusCase still{ "static-image", 640, 360, PixelFormat::RGB24 };
     fillRgb(still, 1, false);
     result.push_back(std::move(still));
+
+    CorpusCase selfContained{ "static-image-self-contained", 640, 360, PixelFormat::RGB24 };
+    fillRgb(selfContained, 1, false);
+    selfContained.persistPaletteRegisters = false;
+    result.push_back(std::move(selfContained));
+
+    CorpusCase singleThread{ "static-image-single-thread", 640, 360, PixelFormat::RGB24 };
+    fillRgb(singleThread, 1, false);
+    singleThread.maximumThreads = 1;
+    result.push_back(std::move(singleThread));
 
     CorpusCase animation{ "animation", 320, 180, PixelFormat::RGB24 };
     fillRgb(animation, 19, false);
@@ -131,6 +152,11 @@ inline std::vector<CorpusCase> makeCorpus()
     CorpusCase motion{ "high-motion-video", 640, 360, PixelFormat::RGB24 };
     fillRgb(motion, 31, true);
     result.push_back(std::move(motion));
+
+    CorpusCase unchunked{ "high-motion-unchunked", 640, 360, PixelFormat::RGB24 };
+    fillRgb(unchunked, 31, true);
+    unchunked.outputChunkBytes = 0;
+    result.push_back(std::move(unchunked));
 
     CorpusCase ui{ "ui-damage", 800, 450, PixelFormat::RGB24 };
     fillRgb(ui, 7, false);
@@ -152,6 +178,7 @@ inline std::vector<CorpusCase> makeCorpus()
         indexed.indices[index] = static_cast<std::uint8_t>((index + index / indexed.width) & 63);
     }
     result.push_back(std::move(indexed));
+    const std::size_t indexedCaseIndex = result.size() - 1;
 
     CorpusCase expanded{ "emulator-rgb24", 256, 240, PixelFormat::RGB24 };
     fillRgb(expanded, 11, false);
@@ -161,6 +188,41 @@ inline std::vector<CorpusCase> makeCorpus()
     result.push_back(uiBgra("ui-bgra-full", false));
     result.push_back(uiBgra("ui-bgra-damage", true));
     result.push_back(lowEntropyMotion());
+
+    CorpusCase adaptiveRegions{ "adaptive-multi-region", 640, 360, PixelFormat::RGB24 };
+    fillRgb(adaptiveRegions, 43, false);
+    adaptiveRegions.uiDamage = true;
+    adaptiveRegions.multiRegion = true;
+    result.push_back(adaptiveRegions);
+    adaptiveRegions.name = "adaptive-multi-region-global-palette";
+    adaptiveRegions.independentRegionQuantization = false;
+    result.push_back(adaptiveRegions);
+    adaptiveRegions.name = "adaptive-multi-region-limited";
+    adaptiveRegions.independentRegionQuantization = true;
+    adaptiveRegions.outputLimit = 512 * 1024;
+    result.push_back(std::move(adaptiveRegions));
+
+    auto convertedDamage = uiBgra("non-srgb-damage", true);
+    convertedDamage.nonSrgbDamage = true;
+    result.push_back(std::move(convertedDamage));
+
+    CorpusCase bounded{ "bounded-writer-rejection", 1280, 720, PixelFormat::RGB24 };
+    fillRgb(bounded, 71, true);
+    bounded.outputLimit = 4096;
+    result.push_back(std::move(bounded));
+
+    for (const auto [name, submission] : {
+             std::pair{ std::string_view("indexed-presenter-copy"), PresenterSubmission::Copy },
+             std::pair{ std::string_view("indexed-presenter-owned"), PresenterSubmission::Owned },
+             std::pair{ std::string_view("indexed-presenter-shared"), PresenterSubmission::Shared },
+         }) {
+        CorpusCase presenterIndexed{ name, 256, 240, PixelFormat::RGB24 };
+        presenterIndexed.indexed = true;
+        presenterIndexed.presenterSubmission = submission;
+        presenterIndexed.palette = result[indexedCaseIndex].palette;
+        presenterIndexed.indices = result[indexedCaseIndex].indices;
+        result.push_back(std::move(presenterIndexed));
+    }
     return result;
 }
 

@@ -102,7 +102,7 @@ bool canPresentWithoutBottomScroll(const std::span<const DamageRegion> regions,
                                    const int frameHeight) noexcept
 {
     return std::none_of(regions.begin(), regions.end(), [frameHeight](const DamageRegion region) {
-        return region.y + region.height == frameHeight && region.height % 6 != 0;
+        return region.y + region.height == frameHeight;
     });
 }
 
@@ -159,15 +159,34 @@ Renderer::Renderer(OutputSink& output, RendererOptions options) :
 
 ErrorCode Renderer::clear()
 {
-    return terminal.clearAndHome() ? ErrorCode::None : terminal.error();
+    const bool cleared = terminal.clearAndHome();
+    reset();
+    return cleared ? ErrorCode::None : terminal.error();
 }
 
 void Renderer::reset()
 {
+    backend->reset();
     damage.reset();
     usingSuppliedDamage = false;
     previousWidth = 0;
     previousHeight = 0;
+    previousFormatTag = -1;
+    previousPalette.clear();
+}
+
+std::size_t Renderer::scratchCapacity() const noexcept
+{
+    return backend->scratchCapacity() + damage.scratchCapacity() +
+        suppliedDamage.capacity() * sizeof(DamageRegion) +
+        presentationDamage.capacity() * sizeof(DamageRegion) +
+        encodedRegions.capacity() * sizeof(EncodedRegion) +
+        previousPalette.capacity() * sizeof(RgbColor);
+}
+
+std::size_t Renderer::outputCapacity() const noexcept
+{
+    return backend->outputCapacity() + transactionBytes.capacity();
 }
 
 void Renderer::updateCellPixels(const TerminalCellPixels cellPixels)
@@ -187,6 +206,8 @@ void Renderer::updateCellPixels(const TerminalCellPixels cellPixels)
     usingSuppliedDamage = false;
     previousWidth = 0;
     previousHeight = 0;
+    previousFormatTag = -1;
+    previousPalette.clear();
 }
 
 RenderResult Renderer::render(const FrameView& frame)
@@ -199,6 +220,11 @@ RenderResult Renderer::render(const IndexedFrameView& frame)
     if (!frame.hasValidIndices()) {
         return {};
     }
+    return renderValidated(frame);
+}
+
+RenderResult Renderer::renderValidated(const IndexedFrameView& frame)
+{
     return renderFrame(frame);
 }
 
@@ -209,28 +235,47 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         return {};
     }
 
+    const int formatTag = [&] {
+        if constexpr (std::is_same_v<Frame, IndexedFrameView>) return 100;
+        else return static_cast<int>(frame.format);
+    }();
+    bool paletteChanged = false;
+    if constexpr (std::is_same_v<Frame, IndexedFrameView>) {
+        paletteChanged = previousPalette.size() != frame.palette.size ||
+            !std::equal(previousPalette.begin(), previousPalette.end(), frame.palette.colors);
+    }
     const bool dimensionsChanged = previousWidth > 0 &&
         (frame.width != previousWidth || frame.height != previousHeight);
-    if (dimensionsChanged) {
+    const bool frameIdentityChanged = previousFormatTag >= 0 &&
+        (formatTag != previousFormatTag || paletteChanged);
+    if (dimensionsChanged || frameIdentityChanged) {
         damage.reset();
         usingSuppliedDamage = false;
     }
 
     if (!options.enableDirtyRegions) {
         const auto encodeStart = std::chrono::steady_clock::now();
+        backend->prepareFrame(frame);
+        backend->setOutputLimit(options.maximumOutputBytes);
         const std::string_view sixel = backend->encodeFrame(frame);
         const auto encodeEnd = std::chrono::steady_clock::now();
-        if (options.maximumOutputBytes > 0 && sixel.size() > options.maximumOutputBytes) {
+        if (backend->outputLimitExceeded()) {
             reset();
-            return { .error = ErrorCode::OutputBufferLimitExceeded };
+            return { .error = ErrorCode::OutputBufferLimitExceeded,
+                     .scratchBytes = scratchCapacity(),
+                     .outputCapacityBytes = outputCapacity(),
+                     .encodeDuration = std::chrono::duration_cast<std::chrono::microseconds>(
+                         encodeEnd - encodeStart) };
         }
+        const std::size_t wireStart = terminal.acceptedBytes();
         UpdateScope update(terminal, options.preserveCursor, options.useSynchronizedOutput);
         bool outputSucceeded = true;
         if (dimensionsChanged) {
             outputSucceeded = terminal.clearAndHome();
         }
         const auto presentStart = encodeEnd;
-        outputSucceeded = terminal.drawAtHome(sixel) && outputSucceeded;
+        outputSucceeded = terminal.drawAtHome(
+            sixel, false, options.outputChunkBytes) && outputSucceeded;
         outputSucceeded = update.finish() && outputSucceeded;
         if (!outputSucceeded) {
             reset();
@@ -238,10 +283,21 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         else {
             previousWidth = frame.width;
             previousHeight = frame.height;
+            previousFormatTag = formatTag;
+            if constexpr (std::is_same_v<Frame, IndexedFrameView>) {
+                previousPalette.assign(frame.palette.colors, frame.palette.colors + frame.palette.size);
+            }
+            else {
+                previousPalette.clear();
+            }
         }
         return { .error = outputSucceeded ? ErrorCode::None : terminal.error(),
                  .rendered = outputSucceeded, .usedFullFrame = true,
-                 .outputBytes = outputSucceeded ? sixel.size() : 0, .colorsUsed = backend->lastColorCount(),
+                 .outputBytes = outputSucceeded ? sixel.size() : 0,
+                 .wireBytes = terminal.acceptedBytes() - wireStart,
+                 .scratchBytes = scratchCapacity(),
+                 .outputCapacityBytes = outputCapacity(),
+                 .colorsUsed = backend->lastColorCount(),
                  .encodeDuration = std::chrono::duration_cast<std::chrono::microseconds>(encodeEnd - encodeStart),
                  .presentDuration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - presentStart) };
     }
@@ -261,7 +317,7 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         }
         normalizeDamage(suppliedDamage);
         const auto regions = std::span<const DamageRegion>(suppliedDamage);
-        const bool coversFrame = previousWidth == 0 || dimensionsChanged ||
+        const bool coversFrame = previousWidth == 0 || dimensionsChanged || frameIdentityChanged ||
             (regions.size() == 1 && regions[0].x == 0 && regions[0].y == 0 &&
              regions[0].width == frame.width && regions[0].height == frame.height);
         difference = {
@@ -289,8 +345,9 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         difference.regions = presentationDamage;
     }
 
-    // Positioned SIXEL uses scrolling mode. A patch ending at the bottom edge
-    // must contain complete sixel bands or Windows Terminal scrolls one row.
+    /* Windows Terminal can scroll when a positioned SIXEL reaches the final
+       terminal row, including patches composed of complete six pixel bands. */
+
     if (!difference.isFullFrame &&
         !canPresentWithoutBottomScroll(difference.regions, frame.height)) {
         difference.isFullFrame = true;
@@ -298,19 +355,27 @@ RenderResult Renderer::renderFrame(const Frame& frame)
 
     if (difference.isFullFrame) {
         const auto encodeStart = std::chrono::steady_clock::now();
+        backend->prepareFrame(frame);
+        backend->setOutputLimit(options.maximumOutputBytes);
         const std::string_view sixel = backend->encodeFrame(frame);
         const auto encodeEnd = std::chrono::steady_clock::now();
-        if (options.maximumOutputBytes > 0 && sixel.size() > options.maximumOutputBytes) {
+        if (backend->outputLimitExceeded()) {
             reset();
-            return { .error = ErrorCode::OutputBufferLimitExceeded };
+            return { .error = ErrorCode::OutputBufferLimitExceeded,
+                     .scratchBytes = scratchCapacity(),
+                     .outputCapacityBytes = outputCapacity(),
+                     .encodeDuration = std::chrono::duration_cast<std::chrono::microseconds>(
+                         encodeEnd - encodeStart) };
         }
+        const std::size_t wireStart = terminal.acceptedBytes();
         UpdateScope update(terminal, options.preserveCursor, options.useSynchronizedOutput);
         bool outputSucceeded = true;
         if (dimensionsChanged) {
             outputSucceeded = terminal.clearAndHome();
         }
         const auto presentStart = encodeEnd;
-        outputSucceeded = terminal.drawAtHome(sixel) && outputSucceeded;
+        outputSucceeded = terminal.drawAtHome(
+            sixel, false, options.outputChunkBytes) && outputSucceeded;
         outputSucceeded = update.finish() && outputSucceeded;
         if (!outputSucceeded) {
             reset();
@@ -318,44 +383,87 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         else {
             previousWidth = frame.width;
             previousHeight = frame.height;
+            previousFormatTag = formatTag;
+            if constexpr (std::is_same_v<Frame, IndexedFrameView>) {
+                previousPalette.assign(frame.palette.colors, frame.palette.colors + frame.palette.size);
+            }
+            else {
+                previousPalette.clear();
+            }
         }
         return { .error = outputSucceeded ? ErrorCode::None : terminal.error(),
                  .rendered = outputSucceeded, .usedFullFrame = true,
-                 .outputBytes = outputSucceeded ? sixel.size() : 0, .colorsUsed = backend->lastColorCount(),
+                 .outputBytes = outputSucceeded ? sixel.size() : 0,
+                 .wireBytes = terminal.acceptedBytes() - wireStart,
+                 .scratchBytes = scratchCapacity(),
+                 .outputCapacityBytes = outputCapacity(),
+                 .colorsUsed = backend->lastColorCount(),
                  .encodeDuration = std::chrono::duration_cast<std::chrono::microseconds>(encodeEnd - encodeStart),
                  .presentDuration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - presentStart) };
     }
 
-    if (options.maximumOutputBytes > 0) {
-        std::size_t predictedBytes = 0;
-        for (const DamageRegion& region : difference.regions) {
-            predictedBytes += backend->encodeRegion(frame, region).size();
-            if (predictedBytes > options.maximumOutputBytes) {
-                reset();
-                return { .error = ErrorCode::OutputBufferLimitExceeded };
-            }
+    transactionBytes.clear();
+    encodedRegions.clear();
+    encodedRegions.reserve(difference.regions.size());
+    const auto encodeStart = std::chrono::steady_clock::now();
+    backend->prepareRegionalFrame(frame);
+    int transactionColors = 0;
+    for (const DamageRegion& region : difference.regions) {
+        if (options.maximumOutputBytes > 0 &&
+            transactionBytes.size() >= options.maximumOutputBytes) {
+            reset();
+            return { .error = ErrorCode::OutputBufferLimitExceeded,
+                     .scratchBytes = scratchCapacity(),
+                     .outputCapacityBytes = outputCapacity(),
+                     .encodeDuration = std::chrono::duration_cast<std::chrono::microseconds>(
+                         std::chrono::steady_clock::now() - encodeStart) };
         }
+        const std::size_t remaining = options.maximumOutputBytes == 0
+            ? 0 : options.maximumOutputBytes - transactionBytes.size();
+        backend->prepareRegion(frame, region);
+        backend->setOutputLimit(remaining);
+        const std::string_view sixel = backend->encodeRegion(frame, region);
+        if (backend->outputLimitExceeded()) {
+            reset();
+            return { .error = ErrorCode::OutputBufferLimitExceeded,
+                     .scratchBytes = scratchCapacity(),
+                     .outputCapacityBytes = outputCapacity(),
+                     .encodeDuration = std::chrono::duration_cast<std::chrono::microseconds>(
+                         std::chrono::steady_clock::now() - encodeStart) };
+        }
+        const std::size_t offset = transactionBytes.size();
+        transactionBytes.append(sixel);
+        const int colors = backend->lastColorCount();
+        transactionColors = std::max(transactionColors, colors);
+        encodedRegions.push_back({ region, offset, sixel.size(), colors });
     }
+    const auto encodeEnd = std::chrono::steady_clock::now();
 
+    const std::size_t wireStart = terminal.acceptedBytes();
     UpdateScope update(terminal, options.preserveCursor, options.useSynchronizedOutput);
     bool outputSucceeded = true;
     if (dimensionsChanged) {
         outputSucceeded = terminal.clearAndHome();
     }
-    RenderResult result{ .rendered = true, .usedFullFrame = false, .dirtyRegionCount = static_cast<std::uint32_t>(difference.regions.size()) };
-    for (const DamageRegion& region : difference.regions) {
-        const auto encodeStart = std::chrono::steady_clock::now();
-        const std::string_view sixel = backend->encodeRegion(frame, region);
-        const auto encodeEnd = std::chrono::steady_clock::now();
-        outputSucceeded = terminal.drawAtCell(region.y / options.cellPixels.cellHeight,
-                                              region.x / options.cellPixels.cellWidth,
-                                              sixel) && outputSucceeded;
-        result.encodeDuration += std::chrono::duration_cast<std::chrono::microseconds>(encodeEnd - encodeStart);
-        result.presentDuration += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - encodeEnd);
-        result.outputBytes += sixel.size();
-        result.colorsUsed = std::max(result.colorsUsed, backend->lastColorCount());
+    RenderResult result{ .rendered = true, .usedFullFrame = false,
+                         .outputBytes = transactionBytes.size(),
+                         .scratchBytes = scratchCapacity(),
+                         .outputCapacityBytes = outputCapacity(),
+                         .dirtyRegionCount = static_cast<std::uint32_t>(encodedRegions.size()),
+                         .colorsUsed = transactionColors,
+                         .encodeDuration = std::chrono::duration_cast<std::chrono::microseconds>(encodeEnd - encodeStart) };
+    const auto presentStart = std::chrono::steady_clock::now();
+    for (const EncodedRegion& encoded : encodedRegions) {
+        const std::string_view sixel(transactionBytes.data() + encoded.offset, encoded.size);
+        outputSucceeded = terminal.drawAtCell(encoded.region.y / options.cellPixels.cellHeight,
+                                              encoded.region.x / options.cellPixels.cellWidth,
+                                              sixel, false, options.outputChunkBytes) &&
+            outputSucceeded;
     }
     outputSucceeded = update.finish() && outputSucceeded;
+    result.presentDuration = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - presentStart);
+    result.wireBytes = terminal.acceptedBytes() - wireStart;
     if (!outputSucceeded) {
         reset();
         result.error = terminal.error();
@@ -365,6 +473,13 @@ RenderResult Renderer::renderFrame(const Frame& frame)
     else {
         previousWidth = frame.width;
         previousHeight = frame.height;
+        previousFormatTag = formatTag;
+        if constexpr (std::is_same_v<Frame, IndexedFrameView>) {
+            previousPalette.assign(frame.palette.colors, frame.palette.colors + frame.palette.size);
+        }
+        else {
+            previousPalette.clear();
+        }
     }
     return result;
 }

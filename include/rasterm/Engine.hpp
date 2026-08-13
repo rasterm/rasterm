@@ -11,6 +11,8 @@
 
 namespace rasterm {
 
+class Presenter;
+
 class Engine {
 public:
     Engine();
@@ -38,6 +40,9 @@ public:
     [[nodiscard]] RenderStats stats() const noexcept;
 
 private:
+    friend class Presenter;
+    RenderStats renderValidatedIndexedFrame(const IndexedFrameView& frame);
+
     class Impl;
     Impl* impl = nullptr;
 };

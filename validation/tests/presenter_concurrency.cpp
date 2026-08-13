@@ -26,16 +26,44 @@ public:
     bool write(const std::string_view bytes) noexcept override
     {
         if (presenter != nullptr && bytes.find("\x1bP") != std::string_view::npos &&
-            !called.exchange(true)) {
+            !entered.exchange(true)) {
             presenter->shutdown();
+            called.store(true);
         }
         return true;
     }
     bool flush() noexcept override { return true; }
 
     rasterm::Presenter* presenter = nullptr;
+    std::atomic<bool> entered = false;
     std::atomic<bool> called = false;
 };
+
+class GateSink final : public rasterm::OutputSink {
+public:
+    bool write(const std::string_view bytes) noexcept override
+    {
+        if (bytes.find("\x1bP") != std::string_view::npos && !blocked.exchange(true)) {
+            while (!released.load()) std::this_thread::yield();
+        }
+        return true;
+    }
+    bool flush() noexcept override { return true; }
+
+    std::atomic<bool> blocked = false;
+    std::atomic<bool> released = false;
+};
+
+struct EventCapture {
+    std::atomic<std::uint64_t> droppedId = 0;
+};
+
+void captureEvent(const rasterm::Event& event, void* context) noexcept
+{
+    if (event.type == rasterm::EventType::FrameDropped) {
+        static_cast<EventCapture*>(context)->droppedId.store(event.frameId);
+    }
+}
 
 bool waitFor(const std::atomic<bool>& value)
 {
@@ -56,6 +84,7 @@ int main()
 
     std::atomic<bool> query = true;
     std::atomic<bool> invalidStats = false;
+    std::atomic<std::uint64_t> accepted = 0;
     std::thread observer([&] {
         std::uint64_t previous = 0;
         while (query.load()) {
@@ -77,11 +106,12 @@ int main()
                     pixels.data(), 16, 6, 16 * 3, rasterm::PixelFormat::RGB24,
                     { .frameId = static_cast<std::uint64_t>(threadIndex * 500 + frameIndex) },
                 };
-                (void)presenter.submit(frame);
+                if (presenter.submit(frame)) ++accepted;
             }
         });
     }
     std::thread stopper([&] {
+        while (accepted.load() == 0) std::this_thread::yield();
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
         presenter.shutdown();
     });
@@ -110,5 +140,47 @@ int main()
     if (!reentrantPresenter.submit(frame) || !waitFor(reentrantSink.called)) return 6;
     if (reentrantPresenter.status().code != rasterm::ErrorCode::InvalidArgument) return 7;
     reentrantPresenter.shutdown();
+
+    GateSink gate;
+    EventCapture events;
+    rasterm::Presenter outcomes;
+    rasterm::PresenterOptions outcomeOptions;
+    outcomeOptions.engine.output = &gate;
+    outcomeOptions.engine.enableDirtyRegions = true;
+    outcomeOptions.engine.events = { captureEvent, &events };
+    if (!outcomes.initialize(outcomeOptions)) return 8;
+    std::array<std::uint8_t, 100 * 100 * 3> outcomePixels{};
+    rasterm::FrameView identified{
+        outcomePixels.data(), 100, 100, 100 * 3, rasterm::PixelFormat::RGB24,
+    };
+    identified.metadata.frameId = 1;
+    if (!outcomes.submit(identified) || !waitFor(gate.blocked)) return 9;
+    const std::array<rasterm::DamageRect, 1> firstDamage{ rasterm::DamageRect{ 0, 1, 1, 1 } };
+    const std::array<rasterm::DamageRect, 1> secondDamage{ rasterm::DamageRect{ 99, 7, 1, 1 } };
+    identified.metadata.frameId = 2;
+    identified.metadata.damage = { firstDamage.data(), firstDamage.size(), true };
+    if (!outcomes.submit(identified)) return 10;
+    identified.metadata.frameId = 3;
+    identified.metadata.damage = { secondDamage.data(), secondDamage.size(), true };
+    if (!outcomes.submit(identified)) return 11;
+    if (outcomes.waitUntilIdle(std::chrono::milliseconds(1)) ||
+        outcomes.status().code != rasterm::ErrorCode::TimedOut) return 12;
+    gate.released.store(true);
+    if (!outcomes.waitUntilIdle(std::chrono::seconds(2))) return 13;
+    if (events.droppedId.load() != 2) return 14;
+    auto outcomeStats = outcomes.stats();
+    if (outcomeStats.submittedFrames != 3 || outcomeStats.replacedFrames != 1 ||
+        outcomeStats.submittedFrames != outcomeStats.presentedFrames +
+            outcomeStats.unchangedFrames + outcomeStats.failedFrames +
+            outcomeStats.replacedFrames + outcomeStats.cancelledFrames) return 15;
+    if (outcomeStats.latestRender.fullFrame) return 18;
+    if (outcomeStats.latestRender.dirtyRegions != 2) return 19;
+    if (outcomes.submit(rasterm::FrameView{}) ||
+        outcomes.status().code != rasterm::ErrorCode::InvalidArgument ||
+        outcomes.stats().rejectedFrames != 1) return 16;
+    if (!outcomes.invalidate() || !outcomes.submit(identified) ||
+        !outcomes.waitUntilIdle(std::chrono::seconds(2)) ||
+        !outcomes.stats().latestRender.fullFrame) return 17;
+    outcomes.shutdown();
     return 0;
 }

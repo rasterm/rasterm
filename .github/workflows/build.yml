@@ -28,7 +28,6 @@ jobs:
         run: >-
           cmake -S . -B build/ci -A x64
           -DRASTERM_BUILD_TESTS=ON
-          -DRASTERM_BUILD_EXAMPLES=ON
           -DRASTERM_BUILD_BENCHMARKS=ON
           -DRASTERM_WARNINGS_AS_ERRORS=ON
 
@@ -36,6 +35,11 @@ jobs:
         run: |
           cmake --build build/ci --config ${{ matrix.configuration }} --parallel
           ctest --test-dir build/ci -C ${{ matrix.configuration }} --output-on-failure
+
+      - name: Build rasterm Examples
+        run: |
+          cmake -S apps/examples -B apps/examples/build -A x64
+          cmake --build apps/examples/build --config ${{ matrix.configuration }} --parallel
 
       - name: Smoke Test Benchmark Corpus
         if: matrix.configuration == 'Release'
@@ -113,7 +117,6 @@ jobs:
         run: >-
           cmake -S . -B build/clang-cl -A x64 -T ClangCL
           -DRASTERM_BUILD_TESTS=ON
-          -DRASTERM_BUILD_EXAMPLES=ON
           -DRASTERM_BUILD_BENCHMARKS=ON
           -DRASTERM_WARNINGS_AS_ERRORS=ON
 
@@ -121,6 +124,11 @@ jobs:
         run: |
           cmake --build build/clang-cl --config Release --parallel
           ctest --test-dir build/clang-cl -C Release --output-on-failure
+
+      - name: Build rasterm Examples
+        run: |
+          cmake -S apps/examples -B apps/examples/build -A x64 -T ClangCL
+          cmake --build apps/examples/build --config Release --parallel
 
       - name: Smoke Test Benchmark Corpus
         shell: pwsh
@@ -153,7 +161,6 @@ jobs:
           cmake -S . -B build/mingw -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DRASTERM_BUILD_TESTS=ON \
-            -DRASTERM_BUILD_EXAMPLES=ON \
             -DRASTERM_BUILD_BENCHMARKS=ON \
             -DRASTERM_WARNINGS_AS_ERRORS=ON
           cmake --build build/mingw --parallel
@@ -161,6 +168,12 @@ jobs:
           RASTERM_BENCH_ITERATIONS=5 ./build/mingw/rasterm-encoder-benchmark.exe >/dev/null
           cmake --install build/mingw --prefix build/install
           cmake -DROOT="$PWD/build/install" -DINSTALL_TREE=ON -P cmake/VerifyReleaseContents.cmake
+
+      - name: Build rasterm Examples
+        run: |
+          cmake -S apps/examples -B apps/examples/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build apps/examples/build --parallel
 
       - name: Verify Installed pkg-config Consumers
         run: |
@@ -180,6 +193,79 @@ jobs:
             echo "pkg-config consumer is missing the host-compatible winpthread runtime" >&2
             exit 1
           fi
+
+  windows-asan:
+    name: MSVC x64 AddressSanitizer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AddressSanitizer Tests
+        run: >-
+          cmake -S . -B build/asan -A x64
+          -DRASTERM_BUILD_TESTS=ON
+          -DRASTERM_ENABLE_ASAN=ON
+          -DRASTERM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build and run AddressSanitizer Tests
+        run: |
+          cmake --build build/asan --config RelWithDebInfo --parallel
+          ctest --test-dir build/asan -C RelWithDebInfo --output-on-failure
+
+  windows-fuzz-smoke:
+    name: Clang Bounded Fuzz Smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure fuzz targets
+        run: >-
+          cmake -S . -B build/fuzz -G "Ninja Multi-Config"
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+          -DRASTERM_BUILD_FUZZERS=ON
+          -DRASTERM_ENABLE_ASAN=ON
+          -DRASTERM_WARNINGS_AS_ERRORS=ON
+
+      - name: Build Fuzz Targets
+        run: cmake --build build/fuzz --config Release --parallel
+
+      - name: Run Bounded Seeded Fuzz Smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          foreach ($name in @('frame_validation', 'damage_rectangles', 'c_structures', 'sixel_writer')) {
+            $targets = @(Get-ChildItem build/fuzz -Recurse -File -Filter "rasterm-fuzz-$name.exe")
+            if ($targets.Count -ne 1) {
+              throw "Expected one executable for $name, found $($targets.Count)."
+            }
+            $target = $targets[0].FullName
+            $runtime = @(Get-ChildItem (Split-Path -Parent $target) -File `
+              -Filter 'clang_rt.asan_dynamic-*.dll')
+            if ($runtime.Count -eq 0) {
+              throw "The Clang ASan runtime was not deployed beside $target."
+            }
+            $corpus = "validation/tests/fuzz/corpus/$name"
+            $artifactDirectory = "build/fuzz/artifacts/$name"
+            New-Item -ItemType Directory -Force -Path $artifactDirectory | Out-Null
+            Write-Host "::group::Fuzz $name"
+            Write-Host "Executable: $target"
+            & $target $corpus -seed=1337 -max_total_time=15 -timeout=5 `
+              -detect_leaks=0 -artifact_prefix="$artifactDirectory/" -print_final_stats=1
+            $exitCode = $LASTEXITCODE
+            Write-Host "Exit code: $exitCode"
+            Write-Host "::endgroup::"
+            if ($exitCode -ne 0) { throw "Fuzzer $name failed with exit code $exitCode." }
+          }
+
+      - name: Upload Fuzz Failure Artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rasterm-fuzz-failures
+          path: build/fuzz/artifacts
+          if-no-files-found: ignore
 
   windows-bindings:
     name: Rust and Python Bindings
@@ -228,12 +314,12 @@ jobs:
           $wheelPath = $wheels[0].FullName
           python -m pip install --no-deps --target build/wheel-test $wheelPath
           $env:PYTHONPATH = "$pwd/build/wheel-test"
-          python -c "import rasterm; assert rasterm.version() == (1, 1, 0)"
+          python -c "import rasterm; assert rasterm.version() == (1, 2, 0)"
 
   release-master:
     name: Publish rasterm Release
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    needs: [windows-x64, windows-clang-cl, windows-mingw64, windows-bindings]
+    needs: [windows-x64, windows-clang-cl, windows-mingw64, windows-asan, windows-fuzz-smoke, windows-bindings]
     runs-on: windows-latest
     permissions:
       contents: write

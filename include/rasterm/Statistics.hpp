@@ -27,6 +27,11 @@ struct RenderStats {
     std::uint64_t outputFailures = 0;
     std::uint64_t backpressureEvents = 0;
     std::uint64_t payloadLimitDrops = 0;
+    std::size_t wireBytes = 0;
+    std::size_t scratchBytes = 0;
+    std::size_t outputCapacityBytes = 0;
+    double validationMilliseconds = 0.0;
+    double conversionMilliseconds = 0.0;
 };
 
 struct PresenterStats {
@@ -34,6 +39,10 @@ struct PresenterStats {
     std::uint64_t presentedFrames = 0;
     std::uint64_t replacedFrames = 0;
     RenderStats latestRender{};
+    std::uint64_t unchangedFrames = 0;
+    std::uint64_t failedFrames = 0;
+    std::uint64_t rejectedFrames = 0;
+    std::uint64_t cancelledFrames = 0;
 };
 
 struct TerminalGeometry {

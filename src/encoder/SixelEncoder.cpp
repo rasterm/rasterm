@@ -8,14 +8,41 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <cstring>
 #include <memory>
+#include <mutex>
+#include <thread>
 #include <windows.h>
 
 namespace rasterm {
 namespace {
 
 std::atomic<int> avx2Mode{ -1 };
+
+std::uint64_t paletteHash(const std::uint32_t* colors, const std::size_t count) noexcept
+{
+    std::uint64_t hash = 1469598103934665603ULL;
+    for (std::size_t index = 0; index < count; ++index) {
+        hash ^= colors[index];
+        hash *= 1099511628211ULL;
+    }
+    hash ^= count;
+    return hash * 1099511628211ULL;
+}
+
+std::uint64_t paletteHash(const PaletteView palette, const int firstRegister) noexcept
+{
+    std::uint64_t hash = 1469598103934665603ULL ^ static_cast<std::uint64_t>(firstRegister);
+    for (std::size_t index = 0; index < palette.size; ++index) {
+        const RgbColor color = palette.colors[index];
+        hash ^= (static_cast<std::uint32_t>(color.red) << 16) |
+            (static_cast<std::uint32_t>(color.green) << 8) | color.blue;
+        hash *= 1099511628211ULL;
+    }
+    hash ^= palette.size;
+    return hash * 1099511628211ULL;
+}
 
 int clampChannel(const int value) noexcept
 {
@@ -94,6 +121,122 @@ void applyOrderedDither(std::vector<std::uint8_t>& pixels, const int width, cons
 
 }
 
+class EncoderParallelExecutor {
+public:
+    using RowFunction = void (*)(void*, int) noexcept;
+
+    explicit EncoderParallelExecutor(const int requestedThreads)
+    {
+        const unsigned hardware = std::max(1U, std::thread::hardware_concurrency());
+        threadCount = requestedThreads > 0
+            ? std::clamp(requestedThreads, 1, 16)
+            : static_cast<int>(std::min(4U, hardware));
+    }
+
+    ~EncoderParallelExecutor()
+    {
+        {
+            std::lock_guard lock(mutex);
+            stopping = true;
+            ++generation;
+        }
+        start.notify_all();
+        for (std::thread& worker : workers) {
+            if (worker.joinable()) worker.join();
+        }
+    }
+
+    bool usefulFor(const int rows, const int pixels) const noexcept
+    {
+        return threadCount > 1 && rows >= threadCount * 4 && pixels >= 128 * 128;
+    }
+
+    void run(const int rows, RowFunction function, void* context)
+    {
+        ensureWorkers();
+        if (workers.empty()) {
+            for (int row = 0; row < rows; ++row) function(context, row);
+            return;
+        }
+        {
+            std::lock_guard lock(mutex);
+            rowFunction = function;
+            rowContext = context;
+            rowCount = rows;
+            nextRow.store(0, std::memory_order_relaxed);
+            remainingWorkers = workers.size();
+            ++generation;
+        }
+        start.notify_all();
+        processRows(function, context, rows);
+        std::unique_lock lock(mutex);
+        finished.wait(lock, [&] { return remainingWorkers == 0; });
+    }
+
+private:
+    void ensureWorkers()
+    {
+        if (started || threadCount <= 1) return;
+        started = true;
+        try {
+            workers.reserve(static_cast<std::size_t>(threadCount - 1));
+            for (int index = 1; index < threadCount; ++index) {
+                workers.emplace_back([this] { workerLoop(); });
+            }
+        }
+        catch (...) {
+            threadCount = static_cast<int>(workers.size()) + 1;
+        }
+    }
+
+    void processRows(RowFunction function, void* context, const int rows) noexcept
+    {
+        for (;;) {
+            const int row = nextRow.fetch_add(1, std::memory_order_relaxed);
+            if (row >= rows) return;
+            function(context, row);
+        }
+    }
+
+    void workerLoop()
+    {
+        std::uint64_t observedGeneration = 0;
+        for (;;) {
+            RowFunction function = nullptr;
+            void* context = nullptr;
+            int rows = 0;
+            {
+                std::unique_lock lock(mutex);
+                start.wait(lock, [&] { return stopping || generation != observedGeneration; });
+                if (stopping) return;
+                observedGeneration = generation;
+                function = rowFunction;
+                context = rowContext;
+                rows = rowCount;
+            }
+            processRows(function, context, rows);
+            {
+                std::lock_guard lock(mutex);
+                if (--remainingWorkers == 0) finished.notify_one();
+            }
+        }
+    }
+
+    std::mutex mutex;
+    std::condition_variable start;
+    std::condition_variable finished;
+    std::vector<std::thread> workers;
+    std::atomic<int> nextRow{ 0 };
+    RowFunction rowFunction = nullptr;
+    void* rowContext = nullptr;
+    int rowCount = 0;
+    std::size_t remainingWorkers = 0;
+    std::uint64_t generation = 0;
+    int threadCount = 1;
+    bool stopping = false;
+    bool started = false;
+};
+
 bool sixelAvx2Supported() noexcept
 {
     return IsProcessorFeaturePresent(PF_AVX2_INSTRUCTIONS_AVAILABLE) != FALSE;
@@ -113,13 +256,124 @@ VideoSixelEncoder::VideoSixelEncoder(const SixelOptions& opts) : options(opts)
 {
     options.maxColors = std::clamp(options.maxColors, 2, 256);
     options.maxFrameColors = std::clamp(options.maxFrameColors, 1, options.maxColors - 1);
-    outputBuffer.reserve(1024 * 1024);
-    paletteIndices.reserve(1920 * 1080);
-
     const int activeColorSlots = options.maxFrameColors + 1;
     analyzer = std::make_unique<FastColorAnalyzer>();
     colorMapper = std::make_unique<FastAdaptiveColorMapper>(activeColorSlots);
     fastColorMapper = std::make_unique<FastColorMapper>(activeColorSlots, options.paletteLevelsPerChannel);
+    parallelExecutor = std::make_unique<EncoderParallelExecutor>(options.maximumThreads);
+}
+
+bool sixelAvx512Supported() noexcept
+{
+#ifdef PF_AVX512F_INSTRUCTIONS_AVAILABLE
+    return IsProcessorFeaturePresent(PF_AVX512F_INSTRUCTIONS_AVAILABLE) != FALSE;
+#else
+    return false;
+#endif
+}
+
+bool sixelAvx512Enabled() noexcept
+{
+    return avx2Mode.load(std::memory_order_relaxed) != 0 && sixelAvx512Supported();
+}
+
+void VideoSixelEncoder::prepareFrame(const FrameView& frame)
+{
+    beginLogicalFrame();
+    adaptiveFramePrepared = false;
+    if (!options.useAdaptivePalette || !frame.isValid()) return;
+
+    analyzer->analyzeFrameFast(frame, pixelLayout(frame.format));
+    float sceneDifference = 1.0f;
+    if (colorMapper->hasHistogram) {
+        sceneDifference = 0.0f;
+        for (std::size_t index = 0; index < analyzer->luminanceHistogram.size(); ++index) {
+            sceneDifference += std::abs(analyzer->luminanceHistogram[index] -
+                                        colorMapper->previousHistogram[index]);
+        }
+        sceneDifference *= 0.5f;
+    }
+    if (!hasAdaptivePalette || paletteAge >= options.adaptivePaletteLockFrames ||
+        sceneDifference >= options.sceneCutThreshold) {
+        colorMapper->buildOptimalPalette(*analyzer);
+        paletteAge = 0;
+        hasAdaptivePalette = true;
+    }
+    else {
+        ++paletteAge;
+    }
+    adaptiveFramePrepared = true;
+}
+
+void VideoSixelEncoder::prepareFrame(const IndexedFrameView&)
+{
+    beginLogicalFrame();
+    adaptiveFramePrepared = false;
+}
+
+void VideoSixelEncoder::prepareRegionalFrame(const FrameView& frame)
+{
+    if (options.useAdaptivePalette && options.independentRegionQuantization) {
+        beginLogicalFrame();
+        adaptiveFramePrepared = false;
+        return;
+    }
+    prepareFrame(frame);
+}
+
+void VideoSixelEncoder::prepareRegion(const FrameView& frame, const DamageRegion& region)
+{
+    if (!options.useAdaptivePalette || !options.independentRegionQuantization ||
+        !frame.isValid() || !region.isValid()) {
+        return;
+    }
+    const FrameView view{
+        .data = frame.data + static_cast<std::ptrdiff_t>(region.y) * frame.stride +
+            static_cast<std::ptrdiff_t>(region.x) * bytesPerPixel(frame.format),
+        .width = region.width,
+        .height = region.height,
+        .stride = frame.stride,
+        .format = frame.format,
+    };
+    analyzer->analyzeFrameFast(view, pixelLayout(view.format));
+    colorMapper->buildOptimalPalette(*analyzer);
+    paletteAge = 0;
+    hasAdaptivePalette = true;
+    adaptiveFramePrepared = true;
+}
+
+void VideoSixelEncoder::beginLogicalFrame() noexcept
+{
+    if (paletteRegistersValid && options.paletteRefreshFrames > 0 &&
+        framesSincePaletteRefresh < options.paletteRefreshFrames) {
+        ++framesSincePaletteRefresh;
+    }
+}
+
+bool VideoSixelEncoder::shouldEmitPalette(const std::uint64_t signature) noexcept
+{
+    if (!options.persistPaletteRegisters) return true;
+    const bool refreshDue = options.paletteRefreshFrames > 0 &&
+        framesSincePaletteRefresh >= options.paletteRefreshFrames;
+    if (!paletteRegistersValid || signature != paletteSignature || refreshDue) {
+        paletteRegistersValid = true;
+        paletteSignature = signature;
+        framesSincePaletteRefresh = 0;
+        return true;
+    }
+    return false;
+}
+
+void VideoSixelEncoder::reset() noexcept
+{
+    paletteAge = 0;
+    hasAdaptivePalette = false;
+    adaptiveFramePrepared = false;
+    paletteRegistersValid = false;
+    paletteSignature = 0;
+    framesSincePaletteRefresh = 0;
+    colorMapper->hasHistogram = false;
+    colorMapper->rgbToColorNum.clear();
 }
 
 std::string_view VideoSixelEncoder::encodeFrame(const FrameView& frame)
@@ -171,6 +425,7 @@ std::string_view VideoSixelEncoder::encodeRegion(const IndexedFrameView& frame,
 
 std::string_view VideoSixelEncoder::encodeView(const FrameView& frame, const PixelLayout layout)
 {
+    limitExceeded = false;
     FrameView source = frame;
     PixelLayout sourceLayout = layout;
     if (options.dither != DitherMode::None) {
@@ -212,88 +467,139 @@ std::string_view VideoSixelEncoder::encodeView(const FrameView& frame, const Pix
 
     int colorCount = 1;
     if (options.useAdaptivePalette) {
-        analyzer->analyzeFrameFast(source, sourceLayout);
-        float sceneDifference = 1.0f;
-        if (colorMapper->hasHistogram) {
-            sceneDifference = 0.0f;
-            for (std::size_t index = 0; index < analyzer->luminanceHistogram.size(); ++index) {
-                sceneDifference += std::abs(analyzer->luminanceHistogram[index] -
-                                            colorMapper->previousHistogram[index]);
+        if (!adaptiveFramePrepared) {
+            analyzer->analyzeFrameFast(source, sourceLayout);
+            float sceneDifference = 1.0f;
+            if (colorMapper->hasHistogram) {
+                sceneDifference = 0.0f;
+                for (std::size_t index = 0; index < analyzer->luminanceHistogram.size(); ++index) {
+                    sceneDifference += std::abs(analyzer->luminanceHistogram[index] -
+                                                colorMapper->previousHistogram[index]);
+                }
+                sceneDifference *= 0.5f;
             }
-            sceneDifference *= 0.5f;
-        }
-        if (!hasAdaptivePalette || paletteAge >= options.adaptivePaletteLockFrames ||
-            sceneDifference >= options.sceneCutThreshold) {
-            colorMapper->buildOptimalPalette(*analyzer);
-            paletteAge = 0;
-            hasAdaptivePalette = true;
-        }
-        else {
-            ++paletteAge;
+            if (!hasAdaptivePalette || paletteAge >= options.adaptivePaletteLockFrames ||
+                sceneDifference >= options.sceneCutThreshold) {
+                colorMapper->buildOptimalPalette(*analyzer);
+                paletteAge = 0;
+                hasAdaptivePalette = true;
+            }
+            else {
+                ++paletteAge;
+            }
         }
         colorCount = colorMapper->nextColorNum;
-        const int sourceStride = pixelStride(sourceLayout);
-        for (int y = 0; y < source.height; ++y) {
-            const std::uint8_t* row = source.data + static_cast<std::ptrdiff_t>(y) * source.stride;
-            for (int x = 0; x < source.width; ++x) {
+        struct AdaptiveMapContext {
+            const FrameView* source;
+            PixelLayout layout;
+            FastAdaptiveColorMapper* mapper;
+            std::uint8_t* indices;
+        } context{ &source, sourceLayout, colorMapper.get(), paletteIndices.data() };
+        const auto mapRow = +[](void* raw, const int y) noexcept {
+            auto& task = *static_cast<AdaptiveMapContext*>(raw);
+            const int sourceStride = pixelStride(task.layout);
+            const std::uint8_t* row = task.source->data +
+                static_cast<std::ptrdiff_t>(y) * task.source->stride;
+            std::uint8_t* mapped = task.indices +
+                static_cast<std::size_t>(y) * task.source->width;
+            for (int x = 0; x < task.source->width; ++x) {
                 const std::uint8_t* pixel = row + x * sourceStride;
-                const PixelChannels channels = readPixel(pixel, sourceLayout);
-                paletteIndices[y * source.width + x] =
-                    static_cast<std::uint8_t>(colorMapper->getColorNumber(
-                        channels.red, channels.green, channels.blue, false));
+                const PixelChannels channels = readPixel(pixel, task.layout);
+                mapped[x] = static_cast<std::uint8_t>(task.mapper->getColorNumberReadOnly(
+                    channels.red, channels.green, channels.blue));
             }
+        };
+        if (parallelExecutor->usefulFor(source.height, totalPixels)) {
+            parallelExecutor->run(source.height, mapRow, &context);
+        }
+        else {
+            for (int y = 0; y < source.height; ++y) mapRow(&context, y);
         }
     }
     else {
         fastColorMapper->reset();
-        const bool useAvx2 = pixelStride(sourceLayout) >= 3 &&
-            source.width >= 64 && sixelAvx2Enabled();
-        for (int y = 0; y < source.height; ++y) {
-            const std::uint8_t* row = source.data + static_cast<std::ptrdiff_t>(y) * source.stride;
-            std::uint8_t* mapped = paletteIndices.data() + static_cast<std::size_t>(y) * source.width;
-            if (useAvx2) {
-                mapPaletteRowAvx2(row, source.width, sourceLayout,
-                                  fastColorMapper->rgbLookup32.data(), mapped);
-                for (int x = 0; x < source.width; ++x) {
-                    const int color = mapped[x];
-                    if (!fastColorMapper->colorUsed[color]) {
-                        fastColorMapper->colorUsed[color] = true;
-                        ++fastColorMapper->usedColorCount;
-                    }
-                }
+        const bool simdEligible = pixelStride(sourceLayout) >= 3 && source.width >= 64;
+        const int simdMode = simdEligible && sixelAvx512Enabled() ? 2
+            : simdEligible && sixelAvx2Enabled() ? 1 : 0;
+        struct FixedMapContext {
+            const FrameView* source;
+            PixelLayout layout;
+            const FastColorMapper* mapper;
+            std::uint8_t* indices;
+            int simd;
+        } context{ &source, sourceLayout, fastColorMapper.get(), paletteIndices.data(), simdMode };
+        const auto mapRow = +[](void* raw, const int y) noexcept {
+            auto& task = *static_cast<FixedMapContext*>(raw);
+            const std::uint8_t* row = task.source->data +
+                static_cast<std::ptrdiff_t>(y) * task.source->stride;
+            std::uint8_t* mapped = task.indices +
+                static_cast<std::size_t>(y) * task.source->width;
+            if (task.simd == 2) {
+                mapPaletteRowAvx512(row, task.source->width, task.layout,
+                                    task.mapper->rgbLookup32.data(), mapped);
+            }
+            else if (task.simd == 1) {
+                mapPaletteRowAvx2(row, task.source->width, task.layout,
+                                  task.mapper->rgbLookup32.data(), mapped);
             }
             else {
-                const int sourceStride = pixelStride(sourceLayout);
-                for (int x = 0; x < source.width; ++x) {
+                const int sourceStride = pixelStride(task.layout);
+                for (int x = 0; x < task.source->width; ++x) {
                     const std::uint8_t* pixel = row + x * sourceStride;
-                    const PixelChannels channels = readPixel(pixel, sourceLayout);
-                    mapped[x] = static_cast<std::uint8_t>(
-                        fastColorMapper->getColorNumber(
-                            channels.red, channels.green, channels.blue));
+                    const PixelChannels channels = readPixel(pixel, task.layout);
+                    const int lr = (static_cast<int>(channels.red) * 31 + 127) / 255;
+                    const int lg = (static_cast<int>(channels.green) * 31 + 127) / 255;
+                    const int lb = (static_cast<int>(channels.blue) * 31 + 127) / 255;
+                    mapped[x] = task.mapper->rgbLookup[(lr * 32 + lg) * 32 + lb];
                 }
+            }
+        };
+        if (parallelExecutor->usefulFor(source.height, totalPixels)) {
+            parallelExecutor->run(source.height, mapRow, &context);
+        }
+        else {
+            for (int y = 0; y < source.height; ++y) mapRow(&context, y);
+        }
+        for (int pixel = 0; pixel < totalPixels; ++pixel) {
+            const int color = paletteIndices[pixel];
+            if (!fastColorMapper->colorUsed[color]) {
+                fastColorMapper->colorUsed[color] = true;
+                ++fastColorMapper->usedColorCount;
             }
         }
         colorCount = fastColorMapper->nextColorNum;
     }
 
     outputBuffer.clear();
-    outputBuffer.reserve(std::max(outputBuffer.capacity(), static_cast<std::size_t>(totalPixels / 3)));
-    beginSixel(outputBuffer, options);
-    emitRasterAttributes(outputBuffer, source.width, source.height);
+    const std::size_t requested = static_cast<std::size_t>(totalPixels / 3);
+    outputBuffer.reserve(outputLimit > 0 ? std::min(requested, outputLimit) : requested);
+    SixelOutput output(outputBuffer, outputLimit);
+    beginSixel(output, options);
+    emitRasterAttributes(output, source.width, source.height);
     if (options.useAdaptivePalette) {
-        emitPalette(outputBuffer, *colorMapper);
+        const bool definePalette = shouldEmitPalette(paletteHash(
+            colorMapper->palette.data(), static_cast<std::size_t>(colorMapper->nextColorNum)));
+        if (definePalette) emitPalette(output, *colorMapper);
     }
     else {
-        emitPalette(outputBuffer, *fastColorMapper);
+        const bool definePalette = shouldEmitPalette(paletteHash(
+            fastColorMapper->colorNumToRgb.data(),
+            static_cast<std::size_t>(fastColorMapper->nextColorNum)));
+        if (definePalette) {
+            if (options.persistPaletteRegisters) emitFullPalette(output, *fastColorMapper);
+            else emitPalette(output, *fastColorMapper);
+        }
     }
-    emitIndexedFrame(outputBuffer, paletteIndices, source.width, source.height, colorCount);
-    outputBuffer += "\x1b\\";
+    emitIndexedFrame(output, paletteIndices, source.width, source.height, colorCount);
+    output.append("\x1b\\");
+    limitExceeded = output.exceeded();
     lastColorCountValue = options.useAdaptivePalette ? colorCount - 1 : fastColorMapper->usedColorCount;
-    return outputBuffer;
+    return limitExceeded ? std::string_view{} : std::string_view(outputBuffer);
 }
 
 std::string_view VideoSixelEncoder::encodeView(const IndexedFrameView& frame)
 {
+    limitExceeded = false;
     const std::size_t totalPixels = static_cast<std::size_t>(frame.width) * frame.height;
     const int registerOffset = frame.palette.size == 256 ? 0 : 1;
     paletteIndices.resize(totalPixels);
@@ -306,15 +612,25 @@ std::string_view VideoSixelEncoder::encodeView(const IndexedFrameView& frame)
     }
 
     outputBuffer.clear();
-    outputBuffer.reserve(std::max(outputBuffer.capacity(), totalPixels / 3));
-    beginSixel(outputBuffer, options);
-    emitRasterAttributes(outputBuffer, frame.width, frame.height);
-    emitPalette(outputBuffer, frame.palette, registerOffset);
-    emitIndexedFrame(outputBuffer, paletteIndices, frame.width, frame.height,
+    const std::size_t requested = totalPixels / 3;
+    outputBuffer.reserve(outputLimit > 0 ? std::min(requested, outputLimit) : requested);
+    SixelOutput output(outputBuffer, outputLimit);
+    beginSixel(output, options);
+    emitRasterAttributes(output, frame.width, frame.height);
+    if (shouldEmitPalette(paletteHash(frame.palette, registerOffset))) {
+        emitPalette(output, frame.palette, registerOffset);
+    }
+    emitIndexedFrame(output, paletteIndices, frame.width, frame.height,
                        static_cast<int>(frame.palette.size + registerOffset));
-    outputBuffer += "\x1b\\";
+    output.append("\x1b\\");
+    limitExceeded = output.exceeded();
     lastColorCountValue = static_cast<int>(frame.palette.size);
-    return outputBuffer;
+    return limitExceeded ? std::string_view{} : std::string_view(outputBuffer);
+}
+
+std::size_t VideoSixelEncoder::scratchCapacity() const noexcept
+{
+    return paletteIndices.capacity() + workingBuffer.capacity();
 }
 
 VideoSixelEncoder::~VideoSixelEncoder() = default;

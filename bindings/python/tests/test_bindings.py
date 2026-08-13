@@ -22,7 +22,7 @@ class BindingTests(unittest.TestCase):
         self.assertEqual(ctypes.sizeof(_ffi.PresenterStats), 272)
 
     def test_loaded_abi_and_version(self):
-        self.assertEqual(rasterm.version(), (1, 1, 0))
+        self.assertEqual(rasterm.version(), (1, 2, 0))
 
     def test_frame_accepts_read_only_buffer(self):
         library = _ffi.Library()

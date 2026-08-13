@@ -27,12 +27,10 @@ if ($Full) {
 }
 
 $sharedValue = if ($BuildShared) { 'ON' } else { 'OFF' }
-$examplesValue = if ($BuildExamples) { 'ON' } else { 'OFF' }
 $testsValue = if ($RunTests) { 'ON' } else { 'OFF' }
 $benchmarksValue = if ($RunBenchmarks) { 'ON' } else { 'OFF' }
 
 & $cmake -S $repoRoot -B $buildRoot -A x64 `
-    "-DRASTERM_BUILD_EXAMPLES=$examplesValue" `
     "-DRASTERM_BUILD_TESTS=$testsValue" `
     "-DRASTERM_BUILD_BENCHMARKS=$benchmarksValue" `
     "-DRASTERM_BUILD_SHARED_C_API=$sharedValue" `
@@ -100,4 +98,11 @@ foreach ($current in $configurations) {
     }
 
     Write-Host "Built and installed rasterm $current at $installRoot"
+}
+
+if ($BuildExamples) {
+    foreach ($current in $configurations) {
+        & (Join-Path $PSScriptRoot 'build-examples.ps1') `
+            -Configuration $current -Jobs $Jobs
+    }
 }

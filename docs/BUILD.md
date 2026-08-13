@@ -1,6 +1,6 @@
 # Build and Installation
 
-Run these commands from the rasterm repository root in PowerShell. rasterm 1.1 supports
+Run these commands from the rasterm repository root in PowerShell. rasterm 1.2 supports
 Windows x64 and C++20. C++ consumers use the static library; language bindings can use
 the optional shared C ABI. You need Visual Studio 2022 v143
 with the Desktop development with C++ workload, CMake 3.24+, and Windows Terminal 1.22+
@@ -29,9 +29,10 @@ to run only one configuration. Optional work is explicit:
 ./scripts/build-rasterm.ps1 -Full
 ```
 
-`-Full` is the maintainer release gate: it enables the shared C ABI, examples, tests,
-benchmark smoke test, install verification, and clean C/C++ consumers for both
-configurations.
+`-BuildExamples` delegates to the standalone examples project, so its artifacts remain
+under `apps/examples/build`. `-Full` is the maintainer release gate: it enables the shared
+C ABI, standalone examples, tests, benchmark smoke test, install verification, and clean
+C/C++ consumers for both configurations.
 
 The equivalent minimal manual build is:
 
@@ -46,7 +47,6 @@ or:
 ```powershell
 cmake -S . -B build/core -A x64 `
   -DRASTERM_BUILD_TESTS=ON `
-  -DRASTERM_BUILD_EXAMPLES=ON `
   -DRASTERM_WARNINGS_AS_ERRORS=ON
 cmake --build build/core --config Release --parallel
 ctest --test-dir build/core -C Release --output-on-failure
@@ -57,7 +57,6 @@ Outputs:
 
 ```text
 build/core/Release/rasterm.lib
-build/core/Release/rasterm-example-*.exe
 build/install/include/rasterm/
 build/install/lib/rasterm.lib
 build/install/lib/cmake/rasterm/
@@ -65,6 +64,24 @@ build/install/lib/cmake/rasterm/
 
 For Debug, replace `Release` with `Debug`; the library is `rastermd.lib`. Official MSVC
 artifacts use `/MD` in Release and `/MDd` in Debug. Do not mix configurations or CRTs.
+
+## Examples
+
+The compiled examples are a standalone Rasterm consumer and keep their generated files
+outside the engine build tree:
+
+```powershell
+.\scripts\build-examples.ps1 -Configuration Release
+```
+
+Equivalent manual commands:
+
+```powershell
+cmake -S apps/examples -B apps/examples/build -A x64
+cmake --build apps/examples/build --config Release --parallel
+```
+
+Output: `apps/examples/build/Release/rasterm-example-*.exe`.
 
 ## Shared C ABI and Bindings
 
@@ -119,7 +136,7 @@ Reference consumers are under `validation/tests/consumer` and
 
 ## rPlayer
 
-rPlayer is optional and uses the root `vcpkg.json` manifest for OpenCV, FFmpeg, and
+rPlayer is optional and uses `apps/rPlayer/vcpkg.json` for OpenCV, FFmpeg, and
 miniaudio. Install [vcpkg](https://github.com/microsoft/vcpkg), set `VCPKG_ROOT`, and use
 a Developer PowerShell for Visual Studio:
 
@@ -130,31 +147,30 @@ msbuild rasterm.sln /m /p:Configuration=Release /p:Platform=x64 `
   /p:VcpkgRoot="$env:VCPKG_ROOT\" /p:VcpkgEnableManifest=true
 ```
 
-Output: `build/x64/Release/apps/rPlayer/rPlayer.exe`. Put the vcpkg runtime DLLs beside
+Output: `apps/rPlayer/build/Release/rPlayer.exe`. Put the vcpkg runtime DLLs beside
 the executable or run in an environment where `vcpkg_installed/x64-windows/bin` is on
 `PATH`. rPlayer metrics are written to `rasterm-metrics.csv` in its working directory.
 
 ## SimpleNES
 
-SimpleNES consumes the installed rasterm package and OpenCV from vcpkg:
+SimpleNES consumes the Rasterm source target and OpenCV from vcpkg:
 
 ```powershell
-cmake -S apps/SimpleNES -B build/simplenes -A x64 `
-  -DCMAKE_PREFIX_PATH="$PWD/build/install" `
+cmake -S apps/SimpleNES -B apps/SimpleNES/build -A x64 `
   -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-cmake --build build/simplenes --config Release --parallel
+cmake --build apps/SimpleNES/build --config Release --parallel
 ```
 
 Run an NTSC ROM:
 
 ```powershell
-build/simplenes/Release/SimpleNES.exe C:/Games/game.nes
+apps/SimpleNES/build/Release/SimpleNES.exe C:/Games/game.nes
 ```
 
 OpenCV must be built for the same x64 configuration. Details and controls are in
 [`apps/SimpleNES/README.md`](../apps/SimpleNES/README.md).
 
-## RetroArch Integration (experimental)
+## RetroArch Integration (WIP/experimental)
 
 This integration is optional and still experimental. It needs MSYS2 MINGW64, GCC, make,
 CMake, pkg-config, ntldd, and RetroArch's normal Windows build dependencies. The included
@@ -182,6 +198,33 @@ cd apps/retroarch/dist/rasterm-retroarch
 ```
 
 In `cmd.exe`, enter the command on one line and do not include backticks.
+
+## Termirror (WIP/experimental)
+
+Termirror is a dependency free, read only DXGI desktop mirror. It is a standalone CMake
+consumer and uses the rasterm source tree by default:
+
+```powershell
+cmake -S apps/Termirror -B apps/Termirror/build -A x64 `
+  -DTERMIRROR_BUILD_TESTS=ON
+cmake --build apps/Termirror/build --config Release --parallel
+ctest --test-dir apps/Termirror/build -C Release --output-on-failure
+apps/Termirror/build/Release/termirror.exe --list-monitors
+apps/Termirror/build/Release/termirror.exe --monitor 0 --mode fit --fps 30
+```
+
+For a non recursive desktop mirror, keep Windows Terminal on a different monitor from the
+captured output. Termirror detects an overlap and reports it before rendering; the recursive
+effect remains available explicitly through `--allow-feedback`.
+
+Termirror writes a buffered `termirror.log` beside the executable by default. Use `--log PATH`
+to select another file or `--no-log` to disable it. The final line summarizes the dominant
+capture, scaling, encoding, or terminal output stage.
+
+Set `TERMIRROR_RASTERM_SOURCE` to another rasterm checkout, or point
+`CMAKE_PREFIX_PATH` at an installed rasterm package when building Termirror separately.
+Window region capture, controls, limitations, and fixed canvas options are documented in
+[`apps/Termirror/README.md`](../apps/Termirror/README.md).
 
 ## MinGW64 Core
 
@@ -212,5 +255,18 @@ cpack --config build/core/CPackConfig.cmake -C Release -G ZIP
 cpack --config build/core/CPackSourceConfig.cmake -G ZIP
 ```
 
-Fuzz targets require Clang with libFuzzer and `RASTERM_BUILD_FUZZERS=ON`. Release
-dependencies are pinned by the vcpkg baseline in `vcpkg.json`.
+Windows fuzz targets require the GNU style Clang driver, Ninja, AddressSanitizer, and the
+static MSVC runtime. The Visual Studio `ClangCL` generator invokes `lld-link` directly and
+therefore cannot add the libFuzzer and sanitizer driver runtimes. Use the Release
+configuration because LLVM's Windows libFuzzer does not support `/DEBUG` links. Configure
+the targets with the commands below. CMake copies Clang's matching dynamic ASan runtime
+beside each executable so the fuzzers do not depend on a machine specific `PATH`:
+
+```powershell
+cmake -S . -B build/fuzz -G "Ninja Multi-Config" `
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ `
+  -DRASTERM_BUILD_FUZZERS=ON -DRASTERM_ENABLE_ASAN=ON
+cmake --build build/fuzz --config Release --parallel
+```
+
+Application dependencies are pinned by each application's vcpkg manifest.

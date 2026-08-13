@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(rasterm VERSION 1.1.0 LANGUAGES C CXX)
+project(rasterm VERSION 1.2.0 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "rasterm currently supports Windows Terminal only.")
@@ -9,18 +9,23 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 include(cmake/rastermSources.cmake)
 
-option(RASTERM_BUILD_EXAMPLES "Build rasterm examples" OFF)
 option(RASTERM_BUILD_TESTS "Build rasterm smoke tests" OFF)
 option(RASTERM_BUILD_BENCHMARKS "Build rasterm microbenchmarks" OFF)
-option(RASTERM_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
-option(RASTERM_BUILD_RASTERMUI "Build the experimental rastermUI library" OFF)
+option(RASTERM_BUILD_FUZZERS "Build libFuzzer targets (GNU-style Clang driver only)" OFF)
 option(RASTERM_BUILD_SHARED_C_API "Build the optional shared C ABI library" OFF)
 option(RASTERM_ENABLE_ASAN "Enable AddressSanitizer for first party targets" OFF)
 option(RASTERM_WARNINGS_AS_ERRORS "Treat first party compiler warnings as errors" ON)
 
 set(RASTERM_MSVC_FRONTEND OFF)
-if(MSVC OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" OR
+   CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     set(RASTERM_MSVC_FRONTEND ON)
+endif()
+
+set(RASTERM_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+if(RASTERM_BUILD_FUZZERS)
+    # LLVM's Windows libFuzzer runtime requires the static MSVC runtime.
+    set(RASTERM_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 if(RASTERM_MSVC_FRONTEND)
@@ -62,7 +67,7 @@ target_include_directories(rasterm
 set_target_properties(rasterm PROPERTIES
     OUTPUT_NAME rasterm
     DEBUG_POSTFIX d
-    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+    MSVC_RUNTIME_LIBRARY "${RASTERM_MSVC_RUNTIME_LIBRARY}"
 )
 
 if(RASTERM_MSVC_FRONTEND)
@@ -70,9 +75,11 @@ if(RASTERM_MSVC_FRONTEND)
         target_compile_options(rasterm PRIVATE /MP)
     endif()
     set_source_files_properties(src/encoder/SixelSimdAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    set_source_files_properties(src/encoder/SixelSimdAvx512.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(rasterm PRIVATE -Wall -Wextra -Wpedantic)
     set_source_files_properties(src/encoder/SixelSimdAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
+    set_source_files_properties(src/encoder/SixelSimdAvx512.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f")
 endif()
 
 if(MINGW)
@@ -80,22 +87,6 @@ if(MINGW)
     # avoid a libstdc++ DLL ABI dependency while sharing the process wide winpthread runtime used by MinGW hosts such as RetroArch.
     
     target_link_options(rasterm INTERFACE -static-libstdc++)
-endif()
-
-if(RASTERM_BUILD_EXAMPLES)
-    add_executable(rasterm-example-c apps/examples/c_api.c)
-    add_executable(rasterm-example-synchronous apps/examples/synchronous.cpp)
-    add_executable(rasterm-example-presenter apps/examples/presenter.cpp)
-    add_executable(rasterm-example-indexed apps/examples/indexed.cpp)
-    add_executable(rasterm-example-custom-sink apps/examples/custom_sink.cpp)
-    add_executable(rasterm-example-damage apps/examples/damage_rectangles.cpp)
-    add_executable(rasterm-example-color apps/examples/color_metadata.cpp)
-    foreach(example IN ITEMS
-            rasterm-example-c rasterm-example-synchronous rasterm-example-presenter
-            rasterm-example-indexed rasterm-example-custom-sink rasterm-example-damage
-            rasterm-example-color)
-        target_link_libraries(${example} PRIVATE rasterm::rasterm)
-    endforeach()
 endif()
 
 if(RASTERM_BUILD_TESTS)
@@ -126,14 +117,6 @@ if(RASTERM_BUILD_TESTS)
     target_link_libraries(rasterm-stress-tests PRIVATE rasterm::rasterm)
     add_test(NAME rasterm.stress COMMAND rasterm-stress-tests)
     set_tests_properties(rasterm.stress PROPERTIES TIMEOUT 30)
-
-    add_executable(rasterm-adaptive-resolution-tests
-        validation/tests/adaptive_resolution.cpp
-        apps/rPlayer/src/AdaptiveResolution.cpp
-    )
-    target_include_directories(rasterm-adaptive-resolution-tests PRIVATE apps/rPlayer/include)
-    target_compile_features(rasterm-adaptive-resolution-tests PRIVATE cxx_std_20)
-    add_test(NAME rasterm.adaptive-resolution COMMAND rasterm-adaptive-resolution-tests)
 
     add_executable(rasterm-color-geometry-tests validation/tests/color_geometry.cpp)
     target_link_libraries(rasterm-color-geometry-tests PRIVATE rasterm::rasterm)
@@ -207,6 +190,10 @@ if(RASTERM_BUILD_TESTS)
     )
     add_test(NAME rasterm.protocol-recovery COMMAND rasterm-protocol-recovery-tests)
 
+    add_executable(rasterm-state-machine-tests validation/tests/state_machine.cpp)
+    target_link_libraries(rasterm-state-machine-tests PRIVATE rasterm::rasterm)
+    add_test(NAME rasterm.state-machine COMMAND rasterm-state-machine-tests)
+
     add_executable(rasterm-terminal-owner-tests
         validation/tests/terminal_owner.cpp
         src/platform/windows/TerminalOwner.cpp
@@ -241,15 +228,41 @@ if(RASTERM_BUILD_TESTS AND RASTERM_ENABLE_ASAN AND RASTERM_MSVC_FRONTEND)
 endif()
 
 if(RASTERM_BUILD_FUZZERS)
-    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        message(FATAL_ERROR "RASTERM_BUILD_FUZZERS requires Clang with libFuzzer support.")
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR RASTERM_MSVC_FRONTEND)
+        message(FATAL_ERROR
+            "RASTERM_BUILD_FUZZERS requires the GNU-style Clang driver so it can link "
+            "the sanitizer runtimes. Use clang/clang++ with Ninja, not the ClangCL "
+            "Visual Studio toolset.")
     endif()
+    if(WIN32 AND NOT RASTERM_ENABLE_ASAN)
+        message(FATAL_ERROR "Windows libFuzzer targets require RASTERM_ENABLE_ASAN=ON.")
+    endif()
+    execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}" -print-resource-dir
+        OUTPUT_VARIABLE RASTERM_CLANG_RESOURCE_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE RASTERM_CLANG_RESOURCE_RESULT)
+    if(NOT RASTERM_CLANG_RESOURCE_RESULT EQUAL 0)
+        message(FATAL_ERROR "Unable to locate the Clang compiler runtime directory.")
+    endif()
+    find_file(RASTERM_ASAN_RUNTIME_DLL
+        NAMES clang_rt.asan_dynamic-x86_64.dll
+        HINTS "${RASTERM_CLANG_RESOURCE_DIR}/lib/windows"
+        NO_DEFAULT_PATH REQUIRED)
+    target_compile_options(rasterm PRIVATE -fsanitize=fuzzer-no-link)
     foreach(fuzzer IN ITEMS frame_validation damage_rectangles c_structures sixel_writer)
         add_executable(rasterm-fuzz-${fuzzer} validation/tests/fuzz/${fuzzer}.cpp)
         target_link_libraries(rasterm-fuzz-${fuzzer} PRIVATE rasterm::rasterm)
         target_include_directories(rasterm-fuzz-${fuzzer} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-        target_compile_options(rasterm-fuzz-${fuzzer} PRIVATE -fsanitize=fuzzer,address)
+        target_compile_options(rasterm-fuzz-${fuzzer} PRIVATE -fsanitize=fuzzer-no-link)
         target_link_options(rasterm-fuzz-${fuzzer} PRIVATE -fsanitize=fuzzer,address)
+        set_target_properties(rasterm-fuzz-${fuzzer} PROPERTIES
+            MSVC_RUNTIME_LIBRARY "${RASTERM_MSVC_RUNTIME_LIBRARY}")
+        add_custom_command(TARGET rasterm-fuzz-${fuzzer} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${RASTERM_ASAN_RUNTIME_DLL}"
+                "$<TARGET_FILE_DIR:rasterm-fuzz-${fuzzer}>"
+            VERBATIM)
     endforeach()
 endif()
 
@@ -260,10 +273,6 @@ if(RASTERM_BUILD_BENCHMARKS)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
-endif()
-
-if(RASTERM_BUILD_RASTERMUI)
-    add_subdirectory(apps/rastermUI)
 endif()
 
 if(RASTERM_BUILD_SHARED_C_API)

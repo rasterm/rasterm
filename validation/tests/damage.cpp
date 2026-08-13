@@ -151,7 +151,9 @@ int main()
     };
     surfaceFrame.metadata.damage = { distantDamage.data(), distantDamage.size(), true };
     const rasterm::RenderResult distant = renderer.render(surfaceFrame);
-    if (!distant.rendered || distant.usedFullFrame || distant.dirtyRegionCount != 2) return 15;
+    if (!distant.rendered || distant.usedFullFrame || distant.dirtyRegionCount != 2 ||
+        distant.outputBytes == 0 || distant.wireBytes <= distant.outputBytes ||
+        distant.scratchBytes == 0) return 15;
 
     constexpr rasterm::DamageRect largeDamage{ 0, 0, 40, 40 };
     surfaceFrame.metadata.damage = { &largeDamage, 1, true };

@@ -7,6 +7,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $true
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($VcpkgRoot)) {
@@ -44,8 +45,8 @@ $vcpkgRootProperty = $VcpkgRoot.TrimEnd('\') + '\'
     '/p:VcpkgEnableManifest=true'
 if ($LASTEXITCODE -ne 0) { throw 'rPlayer build failed.' }
 
-$output = Join-Path $repoRoot "build\x64\$Configuration\apps\rPlayer\rPlayer.exe"
-$installedRoot = Join-Path $repoRoot 'vcpkg_installed\x64-windows\x64-windows'
+$output = Join-Path $repoRoot "apps\rPlayer\build\$Configuration\rPlayer.exe"
+$installedRoot = Join-Path $repoRoot 'apps\rPlayer\vcpkg_installed\x64-windows\x64-windows'
 $installedBin = if ($Configuration -eq 'Debug') {
     Join-Path $installedRoot 'debug\bin'
 }

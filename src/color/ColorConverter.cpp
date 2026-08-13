@@ -9,6 +9,14 @@
 namespace rasterm {
 namespace {
 
+bool sameColor(const ColorMetadata& left, const ColorMetadata& right) noexcept
+{
+    return left.primaries == right.primaries && left.transfer == right.transfer &&
+        left.matrix == right.matrix && left.range == right.range &&
+        left.referenceWhiteNits == right.referenceWhiteNits &&
+        left.masteringPeakNits == right.masteringPeakNits;
+}
+
 float srgbToLinear(const float value) noexcept
 {
     const float channel = std::clamp(value, 0.0f, 1.0f);
@@ -99,12 +107,19 @@ FrameView ColorConverter::toSrgb(const FrameView& frame, const ColorOptions& opt
     const bool alreadySrgb = color.transfer == TransferFunction::Srgb &&
         color.primaries == ColorPrimaries::Bt709 && color.range == ColorRange::Full;
     if (!options.convertToSrgb || alreadySrgb) {
+        reset();
         return frame;
     }
 
     const int channels = bytesPerPixel(frame.format);
     const std::size_t stride = static_cast<std::size_t>(frame.width) * channels;
-    pixels.resize(stride * frame.height);
+    const bool compatibleCache = hasConvertedFrame && previousWidth == frame.width &&
+        previousHeight == frame.height && previousFormat == frame.format &&
+        sameColor(previousColor, color) && previousToneMap == options.toneMap &&
+        previousOutputPeakNits == options.outputPeakNits &&
+        previousDamageSupplied == frame.metadata.damage.supplied &&
+        pixels.size() == stride * static_cast<std::size_t>(frame.height);
+    pixels.resize(stride * static_cast<std::size_t>(frame.height));
     const bool rgb = frame.format == PixelFormat::RGB24 || frame.format == PixelFormat::RGBA32;
     const float rangeScale = color.range == ColorRange::Limited ? 255.0f / 219.0f : 1.0f;
     const float rangeOffset = color.range == ColorRange::Limited ? 16.0f / 255.0f : 0.0f;
@@ -121,10 +136,12 @@ FrameView ColorConverter::toSrgb(const FrameView& frame, const ColorOptions& opt
         }
     }
 
-    for (int y = 0; y < frame.height; ++y) {
+    const auto convertRectangle = [&](const int left, const int top,
+                                      const int width, const int height) {
+      for (int y = top; y < top + height; ++y) {
         const auto* source = frame.data + static_cast<std::ptrdiff_t>(y) * frame.stride;
         auto* destination = pixels.data() + static_cast<std::size_t>(y) * stride;
-        for (int x = 0; x < frame.width; ++x) {
+        for (int x = left; x < left + width; ++x) {
             const int base = x * channels;
             if (channelIndependent) {
                 destination[base] = transferLookup[source[base]];
@@ -155,12 +172,37 @@ FrameView ColorConverter::toSrgb(const FrameView& frame, const ColorOptions& opt
                 destination[base + 3] = source[base + 3];
             }
         }
+      }
+    };
+    if (compatibleCache && frame.metadata.damage.supplied) {
+        for (std::size_t index = 0; index < frame.metadata.damage.count; ++index) {
+            const DamageRect& rectangle = frame.metadata.damage.rectangles[index];
+            convertRectangle(rectangle.x, rectangle.y, rectangle.width, rectangle.height);
+        }
     }
+    else {
+        convertRectangle(0, 0, frame.width, frame.height);
+    }
+    previousColor = color;
+    previousToneMap = options.toneMap;
+    previousOutputPeakNits = options.outputPeakNits;
+    previousWidth = frame.width;
+    previousHeight = frame.height;
+    previousFormat = frame.format;
+    previousDamageSupplied = frame.metadata.damage.supplied;
+    hasConvertedFrame = true;
     FrameView converted = frame;
     converted.data = pixels.data();
     converted.stride = static_cast<std::ptrdiff_t>(stride);
     converted.metadata.color = {};
     return converted;
+}
+
+void ColorConverter::reset() noexcept
+{
+    hasConvertedFrame = false;
+    previousWidth = 0;
+    previousHeight = 0;
 }
 
 }

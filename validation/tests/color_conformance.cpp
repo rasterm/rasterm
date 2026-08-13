@@ -199,5 +199,25 @@ int main()
     const std::string dispatched(dispatchedEncoder.encodeFrame(view(simdPixels)));
     if (scalar != dispatched) return 10;
 
+    std::array<std::uint8_t, 12> regionalPixels{
+        32, 32, 32, 64, 64, 64, 96, 96, 96, 128, 128, 128,
+    };
+    rasterm::DamageRect conversionDamage{ 0, 0, 4, 1 };
+    rasterm::FrameView regionalFrame{
+        regionalPixels.data(), 4, 1, 12, rasterm::PixelFormat::RGB24,
+        { .color = { .transfer = rasterm::TransferFunction::Linear },
+          .damage = { &conversionDamage, 1, true } },
+    };
+    rasterm::ColorConverter regionalConverter;
+    const auto firstConverted = regionalConverter.toSrgb(regionalFrame, {});
+    const std::vector<std::uint8_t> firstPixels(
+        firstConverted.data, firstConverted.data + firstConverted.stride);
+    regionalPixels[6] = regionalPixels[7] = regionalPixels[8] = 200;
+    conversionDamage = { 2, 0, 1, 1 };
+    const auto secondConverted = regionalConverter.toSrgb(regionalFrame, {});
+    if (!std::equal(firstPixels.begin(), firstPixels.begin() + 6, secondConverted.data) ||
+        std::equal(firstPixels.begin() + 6, firstPixels.begin() + 9, secondConverted.data + 6) ||
+        !std::equal(firstPixels.begin() + 9, firstPixels.end(), secondConverted.data + 9)) return 11;
+
     return 0;
 }
