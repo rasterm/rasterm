@@ -59,8 +59,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="src\backend\GraphicsBackend.hpp" />
-    <ClInclude Include="src\backend\SixelBackend.hpp" />
+    <ClInclude Include="src\backend\EncodeContracts.hpp" />
+    <ClInclude Include="src\backend\sixel\SixelBackend.hpp" />
     <ClInclude Include="include\rasterm\capi.h" />
+    <ClInclude Include="include\rasterm\defaults.h" />
     <ClInclude Include="include\rasterm\Buffer.hpp" />
     <ClInclude Include="include\rasterm\Color.hpp" />
     <ClInclude Include="include\rasterm\Config.hpp" />
@@ -85,34 +87,38 @@
     <ClInclude Include="src\color\ColorConverter.hpp" />
     <ClInclude Include="src\damage\DamageRegion.hpp" />
     <ClInclude Include="src\damage\DamageTracker.hpp" />
-    <ClInclude Include="src\encoder\SixelEncoder.hpp" />
-    <ClInclude Include="src\encoder\SixelPalette.hpp" />
-    <ClInclude Include="src\encoder\SixelSimd.hpp" />
-    <ClInclude Include="src\encoder\SixelWriter.hpp" />
+    <ClInclude Include="src\encoder\sixel\SixelEncoder.hpp" />
+    <ClInclude Include="src\encoder\EncoderMetrics.hpp" />
+    <ClInclude Include="src\encoder\sixel\SixelPalette.hpp" />
+    <ClInclude Include="src\encoder\sixel\SixelSimd.hpp" />
+    <ClInclude Include="src\encoder\sixel\SixelWriter.hpp" />
     <ClInclude Include="src\render\Renderer.hpp" />
+    <ClInclude Include="src\render\DamagePlanner.hpp" />
     <ClInclude Include="src\output\StdoutSink.hpp" />
     <ClInclude Include="src\output\TerminalRenderer.hpp" />
     <ClInclude Include="src\platform\windows\ConsoleSession.hpp" />
     <ClInclude Include="src\platform\windows\TerminalOwner.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\backend\SixelBackend.cpp" />
+    <ClCompile Include="src\backend\sixel\SixelBackend.cpp" />
     <ClCompile Include="src\capi\rasterm_c.cpp" />
     <ClCompile Include="src\color\ColorConverter.cpp" />
     <ClCompile Include="src\engine\Engine.cpp" />
     <ClCompile Include="src\engine\Presenter.cpp" />
     <ClCompile Include="src\diagnostics\DiagnosticReporter.cpp" />
     <ClCompile Include="src\damage\DamageTracker.cpp" />
-    <ClCompile Include="src\encoder\SixelEncoder.cpp" />
-    <ClCompile Include="src\encoder\SixelPalette.cpp" />
-    <ClCompile Include="src\encoder\SixelSimdAvx2.cpp">
+    <ClCompile Include="src\encoder\sixel\SixelEncoder.cpp" />
+    <ClCompile Include="src\encoder\sixel\SixelPalette.cpp" />
+    <ClCompile Include="src\encoder\sixel\SixelSimdAvx2.cpp">
       <AdditionalOptions>/arch:AVX2 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="src\encoder\SixelSimdAvx512.cpp">
+    <ClCompile Include="src\encoder\sixel\SixelSimdAvx512.cpp">
       <AdditionalOptions>/arch:AVX512 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="src\encoder\SixelWriter.cpp" />
+    <ClCompile Include="src\encoder\sixel\SixelWriter.cpp" />
     <ClCompile Include="src\render\Renderer.cpp" />
+    <ClCompile Include="src\render\DamagePlanner.cpp" />
+    <ClCompile Include="src\scaling\ImageScaler.cpp" />
     <ClCompile Include="src\output\StdoutSink.cpp" />
     <ClCompile Include="src\output\TerminalRenderer.cpp" />
     <ClCompile Include="src\platform\windows\ConsoleSession.cpp" />
