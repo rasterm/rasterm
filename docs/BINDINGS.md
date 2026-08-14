@@ -3,6 +3,10 @@
 rasterm's stable C API v1 is the only foreign language boundary. Rust and Python do not
 depend on each other and neither binding reaches into the C++ ABI.
 
+Cross language default values are defined once in
+[`defaults.h`](../include/rasterm/defaults.h). C++ initializers derive from that table, while
+C, Rust, and Python conformance tests verify every mapping they expose.
+
 ```text
                  rasterm C++ core
                         |
@@ -33,7 +37,7 @@ This produces `rasterm.lib`, `rasterm.dll`, and the shared library import archiv
 `rasterm-import.lib`. Static C/C++ consumers are unchanged.
 
 Generator and platform choices are cached per build directory. When reusing an existing
-`build/bindings`, repeat its original generator arguments; the repository commands omit
+`build/bindings`, repeat its original generator arguments so the repository commands omit
 `-A` so the same directory remains reusable on an x64 developer shell.
 
 ## Rust

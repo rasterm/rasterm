@@ -14,15 +14,13 @@ is the Windows Terminal backend used in rasterm 1.x.
 ## Public Contracts
 
 - [`BINDINGS.md`](BINDINGS.md) - Rust and Python APIs, builds, ownership, and packaging
-
+- [`API_INVENTORY.md`](API_INVENTORY.md) — ownership, threading, errors, and ABI status by type
 - [`COMPATIBILITY.md`](COMPATIBILITY.md) — semantic versioning, static library policy,
   compiler/runtime boundary, and C ABI v1
 - [`C_API.md`](C_API.md) — C specific usage and structure/version rules
 - [`LIFETIMES.md`](LIFETIMES.md) — focused threading and buffer lifetime guide
-- [`TERMINAL_COMPATIBILITY.md`](TERMINAL_COMPATIBILITY.md) — supported Windows Terminal
-  lines and conservative capability detection
-- [`COLOR.md`](COLOR.md) — color conversion, perceptual limits, dithering, palettes, HDR,
-  and 256-color constraints
+- [`TERMINAL_COMPATIBILITY.md`](TERMINAL_COMPATIBILITY.md) — supported Windows Terminal lines and conservative capability detection
+- [`COLOR.md`](COLOR.md) — color conversion, perceptual limits, dithering, palettes, HDR, and 256-color constraints
 
 ## Engineering and Validation
 

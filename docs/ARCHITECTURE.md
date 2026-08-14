@@ -26,18 +26,19 @@ even though the folders have descriptive names instead of living under one large
 rasterm/
 |-- include/rasterm/       Supported C++ API
 |-- src/engine/            Engine and asynchronous Presenter implementations
-|-- src/backend/           Private graphics backend interface and SIXEL adapter
+|-- src/backend/           Private graphics backend interface
+|   `-- sixel/             SIXEL backend adapter
 |-- src/diagnostics/       File/callback diagnostics isolated from graphics output
 |-- src/damage/            Pixel/palette change detection and region merging
-|-- src/encoder/           Palette mapping, dithering, and SIXEL generation
+|-- src/encoder/sixel/     Private SIXEL analysis, mapping, SIMD, and writing
 |-- src/render/            Frame to terminal rendering orchestration
 |-- src/output/            OutputSink implementations and terminal presentation
 |-- src/platform/windows/  Windows console integration
-|-- apps/rPlayer/          Optional media player using the public API
-|-- apps/Termirror/        Native DXGI desktop capture using the public API
+|-- src/platform/linux/    Reserved Linux platform boundary and design notes
 |-- apps/examples/         Small public API consumers
-|-- validation/tests/      Runtime, ABI, fuzz, and installed-consumer verification
-|-- validation/benchmarks/ Reproducible performance corpus and baselines
+|-- validation/            Unified CMake validation kit
+|   |-- tests/             Runtime, ABI, fuzz, and installed consumer verification
+|   `-- benchmarks/        Reproducible performance corpus and baselines
 `-- docs/                  User and implementation documentation
 ```
 
@@ -51,7 +52,8 @@ rasterm/
 - `RenderStats` and `PresenterStats`: timing and frame results.
 - `Status`, `ErrorCode`, and `TerminalCapabilities`: startup results and terminal support.
 - `OutputSink`: sends finished output to a terminal, test buffer, or custom destination.
-- `Extent` and `fitWithin`: dependency free geometry.
+- `Extent`, `fitWithin`, and `calculateScaleLayout`: dependency free geometry.
+- `scaleFrame`: dependency free packed pixel resampling into an owned RGB24 canvas.
 
 Consumers may include the narrow headers they use or the `rasterm.hpp` umbrella.
 
@@ -64,6 +66,8 @@ indexed pixels + exact palette --------------------+--> damage tracking
                                                         |
                                                         v
                                              private GraphicsBackend
+                                                        |
+                                             EncodeRequest / EncodedUpdate
                                                         |
                                                         v
                                                    SIXEL encoding
@@ -88,10 +92,12 @@ new frame replaces the waiting frame instead of building a laggy queue.
 
 ## Application Boundary
 
-`apps/rPlayer` owns decoding, scaling, audio, clocks, adaptive resolution, and CSV metrics.
-`apps/Termirror` owns DXGI capture, cursor composition, source scaling, and capture damage
-translation. Both call only public rasterm types. Protocol encoding, terminal output, geometry,
-and presentation belong to the library. Application-specific policies do not.
+`apps/rPlayer` owns decoding, audio, clocks, adaptive resolution decisions, and CSV metrics.
+`apps/Termirror` owns DXGI capture, cursor composition, and capture damage translation. Apps
+decide when and why to resize a source, the public `scaleFrame` helper provides the generic
+dependency free pixel operation. Both call only public rasterm types. Protocol encoding,
+terminal output, geometry, and presentation belong to the library. Application specific
+policies do not.
 
 ## Dependency Policy
 
@@ -102,8 +108,12 @@ rasterm checks the console handle, dimensions, VT mode, stdout mode, and cancell
 handler before it starts rendering. If startup fails halfway through, or rendering later
 stops because of an error or Ctrl+C, it restores the terminal settings it changed.
 
-`GraphicsBackend` is private and decides how frames are encoded; `SixelBackend` is the only 1.0
-implementation. `OutputSink` transports completed bytes and is not a protocol selection API.
+`GraphicsBackend` is private and decides how frames are encoded. The renderer submits generic
+`EncodeRequest` intent (full or regional update and its byte ceiling) and receives an
+`EncodedUpdate` as it never owns `SixelOptions`. `SixelBackend` translates the private backend
+configuration into SIXEL policy and is the only 1.x implementation. Stage timings remain private
+so palette analysis, mapping, writing, and budgeting can evolve without widening the public ABI.
+`OutputSink` transports completed bytes and is not a protocol selection API.
 Future protocols can add private backends without changing how applications submit frames.
 Backend selection will become public only after multiple implementations show what that API
 actually needs.

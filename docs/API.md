@@ -1,4 +1,4 @@
-# rasterm 1.2 API Reference
+# Rasterm C++ and C API Reference
 
 This page explains how to use every public C++ type under `include/rasterm/`, including
 who owns each buffer, which calls are thread safe, where callbacks run, and how errors
@@ -7,7 +7,7 @@ are returned. The C ABI is summarized near the end and defined in
 
 ## Core Rules
 
-* rasterm 1.2 renders frames inside Windows Terminal. You supply the pixel data, and the library handles protocol encoding internally.
+* rasterm renders frames inside Windows Terminal. You supply the pixel data, and the library handles protocol encoding internally.
 * `Engine` is synchronous and single threaded. `Presenter` is thread safe and handles asynchronous rendering with a queue depth of one.
 * Views are immutable and borrowed. Byte strides must be positive (top down).
 * Only one active `Engine` or `Presenter` can write to standard output (`stdout`) at a time per process. Trying to open a second default output instance will fail. However, you can create multiple independent instances if you supply custom output sinks.
@@ -32,15 +32,13 @@ It holds at most one waiting frame. If the worker falls behind, the newest submi
 replaces that waiting frame and increments `replacedFrames`. The producer does not wait
 for the terminal to finish drawing. Compatible regional replacements accumulate the
 replaced frame's damage so the newest pixels remain correct relative to the last frame
-that actually reached the terminal; a full frame or geometry changing replacement stays full.
+that actually reached the terminal, a full frame or geometry changing replacement stays full.
 
 * `submit(FrameView)` and `submit(IndexedFrameView)` copy active pixel rows, palettes, damage rects, and metadata references before returning.
 * `submit(OwnedFrame&&)` and `submit(OwnedIndexedFrame&&)` move ownership into the presenter.
 * `submitShared(...)` avoids copying pixel data, but you must pass a lifetime token that keeps the underlying memory valid until presentation finishes.
-* `waitUntilIdle(timeout)` waits until every accepted frame has reached an outcome and
-  confirms sink acceptance only. It does not confirm terminal parsing or visibility.
-* `invalidate()` orders an Engine reset on the worker so the next rendered frame is a
-  full redraw. Immediate `shutdown()` cancels a waiting frame, drain first when the last frame must reach the sink.
+* `waitUntilIdle(timeout)` waits until every accepted frame has reached an outcome and confirms sink acceptance only. It does not confirm terminal parsing or visibility.
+* `invalidate()` orders an Engine reset on the worker so the next rendered frame is a full redraw. Immediate `shutdown()` cancels a waiting frame, drain first when the last frame must reach the sink.
 * Worker callbacks can call read only query functions. They must never initialize, move, shut down, destroy, or mutate the `Presenter` instance.
 
 ## Frames and Memory Ownership
@@ -58,6 +56,15 @@ that actually reached the terminal; a full frame or geometry changing replacemen
 | `OwnedIndexedFrame` | Owns its index buffer, palette, and damage rects. `view()` returns a borrowed view. |
 | `SharedFrameView` | Borrowed packed view tied to a shared lifetime token (`std::shared_ptr`). |
 | `SharedIndexedFrameView` | Borrowed indexed view tied to a shared lifetime token (`std::shared_ptr`). |
+
+Use `FrameView::tightlyPacked()` or `IndexedFrameView::tightlyPacked()` when rows have no
+padding, they calculate and overflow check the stride. `PaletteView::from()` creates a borrowed
+palette from `std::span<const RgbColor>`. Aggregate initialization remains available when callers
+already have an explicit stride or metadata.
+
+The pointer based `Engine::renderFrame(data, width, height, stride, format)` overload remains
+supported, but `FrameView` is preferred for new code because its ownership and metadata are
+explicit.
 
 Supported `PixelFormat` types: `RGB24`, `BGR24`, `RGBA32`, `BGRA32`, `RGB565`, `XRGB1555`, and `RGBA4444`. Alpha channels are ignored, including when alpha is zero, RGB components are encoded as stored and rasterm does not infer straight or premultiplied alpha. Packed 16-bit formats assume little endian byte ordering. Unrecognized formats fail validation via `isValidPixelFormat()` and `bytesPerPixel()`.
 
@@ -80,6 +87,11 @@ Supported `PixelFormat` types: `RGB24`, `BGR24`, `RGBA32`, `BGRA32`, `RGB565`, `
 | `DitherMode` | `None`, `OrderedBayer4x4`, or `FloydSteinberg`. |
 
 For specific color transformation details and math assumptions, see [`COLOR.md`](COLOR.md).
+
+The runnable [`callbacks_and_overrides.cpp`](../apps/examples/callbacks_and_overrides.cpp)
+example demonstrates custom output, explicit capability geometry, diagnostics, and events.
+Callbacks may update independent synchronized state or inspect borrowed event values, but must
+not initialize, move, shut down, destroy, or mutate the engine/presenter that invoked them.
 
 ## Output, Logging, and Errors
 
@@ -115,11 +127,11 @@ Callbacks run synchronously on whatever thread detects the issue (including the 
 | `PresenterStats` | Thread safe submitted, presented, replaced, unchanged, failed, rejected, and shutdown cancelled counts. Every accepted frame reaches exactly one non rejected outcome. |
 | `Version` | Semantic versioning info. `version` and `abiVersion` are compile time constants. |
 | `Extent`, `Rect` | Geometry value types. |
-| `ScalePolicy`, `ScaleFilter` | Layout enums. rasterm calculates layouts using these types, but does not scale image data itself. |
-| `ScalingOptions`, `ImageOptions` | Policy options for application side scaling. |
+| `ScalePolicy`, `ScaleFilter` | Select layout and resampling behavior for `calculateScaleLayout()` and `scaleFrame()`. |
+| `ScalingOptions`, `ImageOptions` | Dependency free application side scaling policy. |
 | `ScaleLayout` | Calculated output bounds for source, target, and canvas areas. |
 
-`fitWithin()` and `calculateScaleLayout()` are thread safe calculation functions. Passing invalid values returns an empty result.
+`fitWithin()` and `calculateScaleLayout()` are thread safe calculation functions. Passing invalid values returns an empty result. `scaleFrame()` applies these policies to any supported packed `FrameView` and returns a tightly packed owned RGB24 canvas. Invalid frames, bounds, filters, or adjustment values return an empty `OwnedFrame`, source damage is discarded because scaling changes its coordinate system.
 
 ## C ABI (v1)
 
@@ -162,14 +174,15 @@ Example code is available in [`apps/examples`](../apps/examples/):
 * Damage rect usage
 * Color space configuration
 
-Build them independently with `scripts/build-examples.ps1`; their artifacts remain under
+Build them independently with `scripts/build-examples.ps1`, their artifacts remain under
 `apps/examples/build`.
 
 ## Limitations
 
-* **Platforms:** Windows x64 using Windows Terminal with SIXEL enabled is the only supported target for 1.0.
+* **Platforms:** Windows x64 using Windows Terminal with SIXEL enabled is the only supported target for 1.x.
 * **Console Handle:** Default output requires a direct console handle. Use a custom output sink if you need ConPTY capture or standard output redirection.
 * **Capabilities:** Detection relies on environment variables and handle inspection rather than active terminal query negotiation.
 * **Palette Limits:** Output is capped at 256 colors per SIXEL image. HDR inputs are tone mapped down to SDR.
-* **Scaling:** Layout calculations are supported, but resampling/scaling pixels must be done by the caller.
-* **Distribution:** 1.0 ships as static libraries only. See [`COMPATIBILITY.md`](COMPATIBILITY.md).
+* **Scaling:** `scaleFrame()` accepts packed frames and returns owned RGB24 output. Indexed frame resampling is not currently provided.
+* **Distribution:** The C++ API ships as a static library. An optional DLL exposes the stable
+  C ABI used by the Rust and Python bindings. See [`COMPATIBILITY.md`](COMPATIBILITY.md).

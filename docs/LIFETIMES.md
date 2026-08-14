@@ -21,7 +21,7 @@ operation adds another frame queue.
 Output sink methods run on the Engine caller thread or Presenter worker. Diagnostic and
 event callbacks run synchronously on the detecting thread. Read only Presenter queries
 are reentrant. A Presenter worker callback must not initialize, move, shut down, destroy,
-or otherwise mutate its Presenter; a reentrant shutdown request is rejected and external
+or otherwise mutate its Presenter, a reentrant shutdown request is rejected and external
 shutdown must subsequently join the worker. Destroying the object from its own callback
 is forbidden because the callback is executing through that object.
 
@@ -30,6 +30,6 @@ were accepted. rasterm may retry cursor, alternate screen, and synchronized outp
 restoration once. Sinks that can make partial physical writes must finish the remaining
 bytes internally before returning `true`.
 
-Timestamps are signed nanoseconds in a caller defined clock domain. rasterm preserves
+Timestamps are signed nanoseconds in a caller defined clock domain. tasterm preserves
 them for events and telemetry but does not interpret them. Frame ID zero and
 `unknownTimestamp` mean unspecified.

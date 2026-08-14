@@ -2,7 +2,7 @@
 
 rasterm uses semantic versioning for its public headers and installed CMake package.
 
-- The current version is `1.2.0`, C++ ABI generation is `1`, and C API version is `1`.
+- The current version is `1.3.0`, C++ ABI generation is `1`, and C API version is `1`.
 - From 1.0 onward, breaking source or ABI changes require a major version increment.
 - Additive APIs may ship in minor releases. Fixes that preserve documented behavior ship in patch releases.
 - Deprecated APIs remain available for at least one subsequent minor release before removal.

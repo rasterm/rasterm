@@ -16,10 +16,12 @@ at scene cuts. Ordered Bayer dithering is deterministic across frames. Floyd Ste
 is restricted to high quality still output because its propagated error is not
 temporally stable.
 
-Still images use Windows Imaging Component to convert embedded ICC profiles to sRGB;
-formats unsupported by WIC fall back to OpenCV. Palette tests use Oklab distance.
+Still images use Windows Imaging Component to convert embedded ICC profiles to sRGB,
+formats unsupported by WIC fall back to OpenCV. Conversion and indexed palette tests use
+Oklab distance. High quality fixtures decode the generated SIXEL and measure sRGB channel
+error and signed channel bias.
 
-## 1.0 Conformance Limits
+## Conformance Limits
 
 The color tests compare normalized Oklab values. These limits tell us whether a build is
 good enough to release; they do not mean a 256-color terminal image is visually lossless:
@@ -43,6 +45,12 @@ The adaptive palette tests keep the palette stable through small changes and reb
 after a clear scene cut. Ordered Bayer dithering stays anchored to pixel positions, so
 the same frame produces the same bytes even after another frame appears between repeats.
 This avoids random flicker, although shallow gradients can still show normal color bands.
+
+High quality packed frames reserve register 0 and use up to 255 content adaptive colors.
+Floyd Steinberg error is diffused against that selected palette rather than an unrelated
+uniform RGB grid. Deterministic decoded fixtures cap mean channel error at 8 for gradients,
+6 for skin tones and dark scenes, 2 for UI imagery, 18 for high motion noise, and 10 for
+photographic content. Absolute signed channel bias is capped at 2 for every fixture.
 
 ## Expected Limitations
 
