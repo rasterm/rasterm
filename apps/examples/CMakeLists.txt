@@ -30,10 +30,11 @@ add_executable(rasterm-example-indexed indexed.cpp)
 add_executable(rasterm-example-custom-sink custom_sink.cpp)
 add_executable(rasterm-example-damage damage_rectangles.cpp)
 add_executable(rasterm-example-color color_metadata.cpp)
+add_executable(rasterm-example-callbacks callbacks_and_overrides.cpp)
 
 foreach(example IN ITEMS
         rasterm-example-c rasterm-example-synchronous rasterm-example-presenter
         rasterm-example-indexed rasterm-example-custom-sink rasterm-example-damage
-        rasterm-example-color)
+        rasterm-example-color rasterm-example-callbacks)
     target_link_libraries(${example} PRIVATE rasterm::rasterm)
 endforeach()

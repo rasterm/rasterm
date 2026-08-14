@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(rasterm VERSION 1.2.0 LANGUAGES C CXX)
+project(rasterm VERSION 1.3.0 LANGUAGES C CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "rasterm currently supports Windows Terminal only.")
@@ -9,8 +9,8 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 include(cmake/rastermSources.cmake)
 
-option(RASTERM_BUILD_TESTS "Build rasterm smoke tests" OFF)
-option(RASTERM_BUILD_BENCHMARKS "Build rasterm microbenchmarks" OFF)
+option(RASTERM_BUILD_TESTS "Build the rasterm validation kit" OFF)
+option(RASTERM_BUILD_BENCHMARKS "Build rasterm benchmark tools" OFF)
 option(RASTERM_BUILD_FUZZERS "Build libFuzzer targets (GNU-style Clang driver only)" OFF)
 option(RASTERM_BUILD_SHARED_C_API "Build the optional shared C ABI library" OFF)
 option(RASTERM_ENABLE_ASAN "Enable AddressSanitizer for first party targets" OFF)
@@ -74,12 +74,12 @@ if(RASTERM_MSVC_FRONTEND)
     if(MSVC)
         target_compile_options(rasterm PRIVATE /MP)
     endif()
-    set_source_files_properties(src/encoder/SixelSimdAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
-    set_source_files_properties(src/encoder/SixelSimdAvx512.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
+    set_source_files_properties(${RASTERM_SIXEL_AVX2_SOURCE} PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    set_source_files_properties(${RASTERM_SIXEL_AVX512_SOURCE} PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(rasterm PRIVATE -Wall -Wextra -Wpedantic)
-    set_source_files_properties(src/encoder/SixelSimdAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
-    set_source_files_properties(src/encoder/SixelSimdAvx512.cpp PROPERTIES COMPILE_OPTIONS "-mavx512f")
+    set_source_files_properties(${RASTERM_SIXEL_AVX2_SOURCE} PROPERTIES COMPILE_OPTIONS "-mavx2")
+    set_source_files_properties(${RASTERM_SIXEL_AVX512_SOURCE} PROPERTIES COMPILE_OPTIONS "-mavx512f")
 endif()
 
 if(MINGW)
@@ -91,188 +91,10 @@ endif()
 
 if(RASTERM_BUILD_TESTS)
     enable_testing()
-    add_executable(rasterm-smoke validation/tests/smoke.cpp)
-    target_link_libraries(rasterm-smoke PRIVATE rasterm::rasterm)
-    add_test(NAME rasterm.public-api-smoke COMMAND rasterm-smoke)
-
-    add_executable(rasterm-public-api-tests validation/tests/public_api.cpp)
-    target_link_libraries(rasterm-public-api-tests PRIVATE rasterm::rasterm)
-    target_include_directories(rasterm-public-api-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    add_test(NAME rasterm.public-api COMMAND rasterm-public-api-tests)
-
-    add_executable(rasterm-encoder-tests validation/tests/encoder_golden.cpp)
-    target_link_libraries(rasterm-encoder-tests PRIVATE rasterm::rasterm)
-    target_include_directories(rasterm-encoder-tests PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-    )
-    add_test(NAME rasterm.encoder-golden-roundtrip COMMAND rasterm-encoder-tests)
-
-    add_executable(rasterm-damage-tests validation/tests/damage.cpp)
-    target_link_libraries(rasterm-damage-tests PRIVATE rasterm::rasterm)
-    target_include_directories(rasterm-damage-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    add_test(NAME rasterm.damage COMMAND rasterm-damage-tests)
-
-    add_executable(rasterm-stress-tests validation/tests/stress.cpp)
-    target_link_libraries(rasterm-stress-tests PRIVATE rasterm::rasterm)
-    add_test(NAME rasterm.stress COMMAND rasterm-stress-tests)
-    set_tests_properties(rasterm.stress PROPERTIES TIMEOUT 30)
-
-    add_executable(rasterm-color-geometry-tests validation/tests/color_geometry.cpp)
-    target_link_libraries(rasterm-color-geometry-tests PRIVATE rasterm::rasterm)
-    target_include_directories(rasterm-color-geometry-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    add_test(NAME rasterm.color-geometry COMMAND rasterm-color-geometry-tests)
-
-    add_executable(rasterm-color-conformance-tests validation/tests/color_conformance.cpp)
-    target_link_libraries(rasterm-color-conformance-tests PRIVATE rasterm::rasterm)
-    target_include_directories(rasterm-color-conformance-tests PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-    )
-    add_test(NAME rasterm.color-conformance COMMAND rasterm-color-conformance-tests)
-
-    add_executable(rasterm-metadata-ownership-tests validation/tests/metadata_ownership.cpp)
-    target_link_libraries(rasterm-metadata-ownership-tests PRIVATE rasterm::rasterm)
-    add_test(NAME rasterm.metadata-ownership COMMAND rasterm-metadata-ownership-tests)
-
-    add_executable(rasterm-c-api-tests validation/tests/c_api.c)
-    target_link_libraries(rasterm-c-api-tests PRIVATE rasterm::rasterm)
-    add_test(NAME rasterm.c-api COMMAND rasterm-c-api-tests)
-
-    add_executable(rasterm-abi-tests validation/tests/abi.cpp)
-    target_link_libraries(rasterm-abi-tests PRIVATE rasterm::rasterm)
-    add_test(NAME rasterm.c-abi-layout COMMAND rasterm-abi-tests
-        ${CMAKE_CURRENT_SOURCE_DIR}/validation/tests/abi/c_api_v1.layout)
-
-    if(MSVC)
-        get_filename_component(RASTERM_MSVC_TOOL_DIR "${CMAKE_LINKER}" DIRECTORY)
-        find_program(RASTERM_DUMPBIN dumpbin HINTS "${RASTERM_MSVC_TOOL_DIR}")
-        if(RASTERM_DUMPBIN)
-            add_test(NAME rasterm.c-abi-symbols
-                COMMAND ${CMAKE_COMMAND}
-                    -DDUMPBIN=${RASTERM_DUMPBIN}
-                    -DLIBRARY=$<TARGET_FILE:rasterm>
-                    -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/validation/tests/abi/c_api_v1.symbols
-                    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckCAbiSymbols.cmake)
-        else()
-            message(WARNING "dumpbin was not found; the C ABI symbol test is unavailable.")
-        endif()
-    endif()
-
-    add_executable(rasterm-validation-tests validation/tests/validation.cpp)
-    target_link_libraries(rasterm-validation-tests PRIVATE rasterm::rasterm)
-    add_test(NAME rasterm.validation COMMAND rasterm-validation-tests)
-
-    add_executable(rasterm-defaults-tests validation/tests/defaults.cpp)
-    target_link_libraries(rasterm-defaults-tests PRIVATE rasterm::rasterm)
-    add_test(NAME rasterm.c-cpp-defaults COMMAND rasterm-defaults-tests)
-
-    add_executable(rasterm-allocation-failure-tests validation/tests/allocation_failure.cpp)
-    target_link_libraries(rasterm-allocation-failure-tests PRIVATE rasterm::rasterm)
-    add_test(NAME rasterm.allocation-failure COMMAND rasterm-allocation-failure-tests)
-    set_tests_properties(rasterm.allocation-failure PROPERTIES TIMEOUT 30)
-
-    add_executable(rasterm-presenter-concurrency-tests validation/tests/presenter_concurrency.cpp)
-    target_link_libraries(rasterm-presenter-concurrency-tests PRIVATE rasterm::rasterm)
-    add_test(NAME rasterm.presenter-concurrency COMMAND rasterm-presenter-concurrency-tests)
-    set_tests_properties(rasterm.presenter-concurrency PROPERTIES TIMEOUT 30)
-
-    add_executable(rasterm-realtime-contract-tests validation/tests/realtime_contract.cpp)
-    target_link_libraries(rasterm-realtime-contract-tests PRIVATE rasterm::rasterm)
-    add_test(NAME rasterm.realtime-contract COMMAND rasterm-realtime-contract-tests)
-    set_tests_properties(rasterm.realtime-contract PROPERTIES TIMEOUT 30)
-
-    add_executable(rasterm-protocol-recovery-tests validation/tests/protocol_recovery.cpp)
-    target_link_libraries(rasterm-protocol-recovery-tests PRIVATE rasterm::rasterm)
-    target_include_directories(rasterm-protocol-recovery-tests PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-    )
-    add_test(NAME rasterm.protocol-recovery COMMAND rasterm-protocol-recovery-tests)
-
-    add_executable(rasterm-state-machine-tests validation/tests/state_machine.cpp)
-    target_link_libraries(rasterm-state-machine-tests PRIVATE rasterm::rasterm)
-    add_test(NAME rasterm.state-machine COMMAND rasterm-state-machine-tests)
-
-    add_executable(rasterm-terminal-owner-tests
-        validation/tests/terminal_owner.cpp
-        src/platform/windows/TerminalOwner.cpp
-    )
-    target_include_directories(rasterm-terminal-owner-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_compile_features(rasterm-terminal-owner-tests PRIVATE cxx_std_20)
-    add_test(NAME rasterm.terminal-owner COMMAND rasterm-terminal-owner-tests)
-
-    add_test(NAME rasterm.visual-studio-project-parity
-        COMMAND ${CMAKE_COMMAND}
-            -DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyVisualStudioProject.cmake)
-    add_test(NAME rasterm.release-source-contents
-        COMMAND ${CMAKE_COMMAND}
-            -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyReleaseContents.cmake)
-    add_test(NAME rasterm.spdx
-        COMMAND ${CMAKE_COMMAND}
-            -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySpdx.cmake)
-    add_test(NAME rasterm.documentation
-        COMMAND ${CMAKE_COMMAND}
-            -DROOT=${CMAKE_CURRENT_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyDocumentation.cmake)
 endif()
 
-if(RASTERM_BUILD_TESTS AND RASTERM_ENABLE_ASAN AND RASTERM_MSVC_FRONTEND)
-    get_filename_component(RASTERM_ASAN_RUNTIME_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
-    get_property(RASTERM_TEST_NAMES DIRECTORY PROPERTY TESTS)
-    set_tests_properties(${RASTERM_TEST_NAMES} PROPERTIES
-        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${RASTERM_ASAN_RUNTIME_DIR}")
-endif()
-
-if(RASTERM_BUILD_FUZZERS)
-    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR RASTERM_MSVC_FRONTEND)
-        message(FATAL_ERROR
-            "RASTERM_BUILD_FUZZERS requires the GNU-style Clang driver so it can link "
-            "the sanitizer runtimes. Use clang/clang++ with Ninja, not the ClangCL "
-            "Visual Studio toolset.")
-    endif()
-    if(WIN32 AND NOT RASTERM_ENABLE_ASAN)
-        message(FATAL_ERROR "Windows libFuzzer targets require RASTERM_ENABLE_ASAN=ON.")
-    endif()
-    execute_process(
-        COMMAND "${CMAKE_CXX_COMPILER}" -print-resource-dir
-        OUTPUT_VARIABLE RASTERM_CLANG_RESOURCE_DIR
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        RESULT_VARIABLE RASTERM_CLANG_RESOURCE_RESULT)
-    if(NOT RASTERM_CLANG_RESOURCE_RESULT EQUAL 0)
-        message(FATAL_ERROR "Unable to locate the Clang compiler runtime directory.")
-    endif()
-    find_file(RASTERM_ASAN_RUNTIME_DLL
-        NAMES clang_rt.asan_dynamic-x86_64.dll
-        HINTS "${RASTERM_CLANG_RESOURCE_DIR}/lib/windows"
-        NO_DEFAULT_PATH REQUIRED)
-    target_compile_options(rasterm PRIVATE -fsanitize=fuzzer-no-link)
-    foreach(fuzzer IN ITEMS frame_validation damage_rectangles c_structures sixel_writer)
-        add_executable(rasterm-fuzz-${fuzzer} validation/tests/fuzz/${fuzzer}.cpp)
-        target_link_libraries(rasterm-fuzz-${fuzzer} PRIVATE rasterm::rasterm)
-        target_include_directories(rasterm-fuzz-${fuzzer} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-        target_compile_options(rasterm-fuzz-${fuzzer} PRIVATE -fsanitize=fuzzer-no-link)
-        target_link_options(rasterm-fuzz-${fuzzer} PRIVATE -fsanitize=fuzzer,address)
-        set_target_properties(rasterm-fuzz-${fuzzer} PROPERTIES
-            MSVC_RUNTIME_LIBRARY "${RASTERM_MSVC_RUNTIME_LIBRARY}")
-        add_custom_command(TARGET rasterm-fuzz-${fuzzer} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${RASTERM_ASAN_RUNTIME_DLL}"
-                "$<TARGET_FILE_DIR:rasterm-fuzz-${fuzzer}>"
-            VERBATIM)
-    endforeach()
-endif()
-
-if(RASTERM_BUILD_BENCHMARKS)
-    add_executable(rasterm-encoder-benchmark validation/benchmarks/encoder_benchmark.cpp)
-    target_link_libraries(rasterm-encoder-benchmark PRIVATE rasterm::rasterm)
-    target_include_directories(rasterm-encoder-benchmark PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-    )
+if(RASTERM_BUILD_TESTS OR RASTERM_BUILD_FUZZERS OR RASTERM_BUILD_BENCHMARKS)
+    add_subdirectory(validation)
 endif()
 
 if(RASTERM_BUILD_SHARED_C_API)
