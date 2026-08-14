@@ -15,5 +15,6 @@ Executables are written to `apps/examples/build/Release`:
 - `custom_sink.cpp` — all or nothing memory sink
 - `damage_rectangles.cpp` — caller provided damage
 - `color_metadata.cpp` — source color metadata and tone mapping
+- `callbacks_and_overrides.cpp` — callback reentrancy and custom output capability overrides
 
 See [`docs/API.md`](../../docs/API.md) for ownership and threading contracts.

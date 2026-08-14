@@ -1,4 +1,4 @@
-# rasterm 1.2.0
+# rasterm 1.3.0
 
 rasterm lets C and C++ programs draw real pixel frames in Windows Terminal. Give it a
 packed or indexed framebuffer and it handles SIXEL encoding, terminal setup, frame
@@ -43,6 +43,7 @@ Application -> FrameView -> Engine/Presenter -> private backend -> OutputSink
 - Exact caller provided indexed palettes with 1–256 colors
 - Realtime, adaptive video, and high quality profiles
 - Color metadata, SDR conversion, HDR to SDR tone mapping, and stable dithering
+- Fit, fill, crop, integer, and filtered pixel resampling
 - Caller or internally determined damage rectangles
 - Custom output sinks, structured errors, diagnostics, events, and metrics
 - Safe console restoration after shutdown, cancellation, or partial startup
@@ -55,7 +56,6 @@ Requirements: Windows x64, Visual Studio 2022 v143, CMake 3.24+, and Windows Ter
 
 ```powershell
 cmake -S . -B build/core -A x64 `
-  -DRASTERM_BUILD_TESTS=ON `
   -DRASTERM_WARNINGS_AS_ERRORS=ON
 cmake --build build/core --config Release --parallel
 ctest --test-dir build/core -C Release --output-on-failure
@@ -80,7 +80,7 @@ rasterm::FrameView frame{
 const rasterm::RenderStats result = engine.renderFrame(frame);
 ```
 
-Realtime producers should use `Presenter`; known palette producers should use
+Realtime producers should use `Presenter` while known palette producers should use
 `IndexedFrameView`. Complete compiled C and C++ examples are in
 [`apps/examples`](apps/examples/README.md).
 
@@ -93,8 +93,7 @@ apps/examples/          compiled minimal consumers
 apps/rPlayer/           media application
 apps/Termirror/         live Windows desktop mirror
 bindings/               Rust and Python bindings over the C ABI
-validation/tests/       correctness, ABI, consumer, stress, and fuzz validation
-validation/benchmarks/  deterministic performance corpus and baselines
+validation/             unified correctness, ABI, fuzz, and benchmark kit
 docs/                   public documentation
 docs/internal/          engineering/integration material
 ```
@@ -106,6 +105,7 @@ validation/install artifacts.
 ## Documentation
 
 - [API Contracts](docs/API.md)
+- [Public API Inventory](docs/API_INVENTORY.md)
 - [Build and Installation](docs/BUILD.md)
 - [Rust and Python Bindings](docs/BINDINGS.md)
 - [Architecture](docs/ARCHITECTURE.md)
@@ -119,12 +119,12 @@ validation/install artifacts.
 - Windows x64 and Windows Terminal SIXEL are the only supported platform/backend.
 - rasterm outputs at most 256 colors per image; HDR input is tone mapped to SDR.
 - Capability detection is conservative and does not actively negotiate with a terminal.
-- C++ consumers use the static library the optional DLL exposes only the stable C ABI.
+- C++ consumers use the static library, the optional DLL exposes only the stable C ABI.
   MSVC and MinGW artifacts are not interchangeable.
 - Resolution and FPS depend on the scene, payload size, terminal dimensions, Windows
   Terminal version, and hardware. No terminal renderer can promise the same native
   resolution or frame rate for every workload.
-- Kitty, iTerm2, native window, network, and recording backends are post 1.0 work. They
+- Kitty, iTerm2, native window, network, and recording backends are future work. They
   will stay internal until rasterm has enough real implementations to design a useful
   shared API.
 
