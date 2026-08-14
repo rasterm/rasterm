@@ -314,7 +314,7 @@ jobs:
           $wheelPath = $wheels[0].FullName
           python -m pip install --no-deps --target build/wheel-test $wheelPath
           $env:PYTHONPATH = "$pwd/build/wheel-test"
-          python -c "import rasterm; assert rasterm.version() == (1, 2, 0)"
+          python -c "import rasterm; assert rasterm.version() == (1, 3, 0)"
 
   release-master:
     name: Publish rasterm Release
