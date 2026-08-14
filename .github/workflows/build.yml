@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $env:RASTERM_BENCH_ITERATIONS = '5'
-          & build/ci/Release/rasterm-encoder-benchmark.exe | Out-Null
+          & build/ci/validation/Release/rasterm-encoder-benchmark.exe | Out-Null
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify Installed C and C++ Consumers
@@ -134,7 +134,7 @@ jobs:
         shell: pwsh
         run: |
           $env:RASTERM_BENCH_ITERATIONS = '5'
-          & build/clang-cl/Release/rasterm-encoder-benchmark.exe | Out-Null
+          & build/clang-cl/validation/Release/rasterm-encoder-benchmark.exe | Out-Null
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   windows-mingw64:
@@ -165,7 +165,7 @@ jobs:
             -DRASTERM_WARNINGS_AS_ERRORS=ON
           cmake --build build/mingw --parallel
           ctest --test-dir build/mingw --output-on-failure
-          RASTERM_BENCH_ITERATIONS=5 ./build/mingw/rasterm-encoder-benchmark.exe >/dev/null
+          RASTERM_BENCH_ITERATIONS=5 ./build/mingw/validation/rasterm-encoder-benchmark.exe >/dev/null
           cmake --install build/mingw --prefix build/install
           cmake -DROOT="$PWD/build/install" -DINSTALL_TREE=ON -P cmake/VerifyReleaseContents.cmake
 

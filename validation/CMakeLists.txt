@@ -29,7 +29,7 @@ if(RASTERM_BUILD_TESTS)
     file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/headers/capi.c"
         CONTENT "#include <rasterm/capi.h>\n")
     file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/headers/defaults.c"
-        CONTENT "#include <rasterm/defaults.h>\n")
+        CONTENT "#include <rasterm/defaults.h>\nint rasterm_defaults_header_check;\n")
     add_library(rasterm-public-c-header-checks OBJECT
         "${CMAKE_CURRENT_BINARY_DIR}/headers/capi.c"
         "${CMAKE_CURRENT_BINARY_DIR}/headers/defaults.c")
@@ -43,8 +43,12 @@ if(RASTERM_BUILD_TESTS)
         tests/public_api.cpp INCLUDES "${PROJECT_SOURCE_DIR}")
     rasterm_add_validation_test(rasterm-encoder-tests rasterm.encoder-golden-roundtrip
         tests/encoder_golden.cpp INCLUDES "${PROJECT_SOURCE_DIR};${PROJECT_SOURCE_DIR}/src")
+    rasterm_add_validation_test(rasterm-quality-fixture-tests rasterm.quality-fixtures
+        tests/quality_fixtures.cpp INCLUDES "${PROJECT_SOURCE_DIR};${PROJECT_SOURCE_DIR}/src")
     rasterm_add_validation_test(rasterm-damage-tests rasterm.damage tests/damage.cpp
         INCLUDES "${PROJECT_SOURCE_DIR}/src")
+    rasterm_add_validation_test(rasterm-damage-property-tests rasterm.damage-properties
+        tests/damage_properties.cpp INCLUDES "${PROJECT_SOURCE_DIR}/src")
     rasterm_add_validation_test(rasterm-stress-tests rasterm.stress tests/stress.cpp TIMEOUT 30)
     rasterm_add_validation_test(rasterm-color-geometry-tests rasterm.color-geometry
         tests/color_geometry.cpp INCLUDES "${PROJECT_SOURCE_DIR}/src")
@@ -68,7 +72,6 @@ if(RASTERM_BUILD_TESTS)
         tests/state_machine.cpp)
     rasterm_add_validation_test(rasterm-terminal-owner-tests rasterm.terminal-owner
         tests/terminal_owner.cpp
-        SOURCES "${PROJECT_SOURCE_DIR}/src/platform/windows/TerminalOwner.cpp"
         INCLUDES "${PROJECT_SOURCE_DIR}/src")
 
     add_executable(rasterm-abi-tests tests/abi.cpp)
@@ -88,7 +91,7 @@ if(RASTERM_BUILD_TESTS)
                     -P ${PROJECT_SOURCE_DIR}/cmake/CheckCAbiSymbols.cmake)
             set(RASTERM_DUMPBIN "${RASTERM_DUMPBIN}" PARENT_SCOPE)
         else()
-            message(WARNING "dumpbin was not found; the C ABI symbol test is unavailable.")
+            message(WARNING "dumpbin was not found, the C ABI symbol test is unavailable.")
         endif()
     endif()
 
@@ -149,6 +152,21 @@ if(RASTERM_BUILD_BENCHMARKS)
     target_link_libraries(rasterm-encoder-benchmark PRIVATE rasterm::rasterm)
     target_include_directories(rasterm-encoder-benchmark PRIVATE
         "${PROJECT_SOURCE_DIR}" "${PROJECT_SOURCE_DIR}/src")
+
+    add_executable(rasterm-encoder-stage-benchmark benchmarks/encoder_stage_benchmark.cpp)
+    target_link_libraries(rasterm-encoder-stage-benchmark PRIVATE rasterm::rasterm)
+    target_include_directories(rasterm-encoder-stage-benchmark PRIVATE
+        "${PROJECT_SOURCE_DIR}/src")
+
+    add_executable(rasterm-palette-lookup-benchmark benchmarks/palette_lookup_benchmark.cpp)
+    target_link_libraries(rasterm-palette-lookup-benchmark PRIVATE rasterm::rasterm)
+    target_include_directories(rasterm-palette-lookup-benchmark PRIVATE
+        "${PROJECT_SOURCE_DIR}" "${PROJECT_SOURCE_DIR}/src")
+
+    add_executable(rasterm-damage-surface-benchmark benchmarks/damage_surface_benchmark.cpp)
+    target_link_libraries(rasterm-damage-surface-benchmark PRIVATE rasterm::rasterm)
+    target_include_directories(rasterm-damage-surface-benchmark PRIVATE
+        "${PROJECT_SOURCE_DIR}/src")
 
     add_executable(rasterm-windows-terminal-sixel-repro
         benchmarks/windows_terminal_sixel_repro.cpp)

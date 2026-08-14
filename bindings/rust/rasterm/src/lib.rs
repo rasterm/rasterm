@@ -765,7 +765,10 @@ mod tests {
         assert_eq!(mapped.preserve_cursor, native.preserve_cursor);
         assert_eq!(mapped.enable_dirty_regions, native.enable_dirty_regions);
         assert_eq!(mapped.require_sixel_support, native.require_sixel_support);
-        assert_eq!(mapped.use_synchronized_output, native.use_synchronized_output);
+        assert_eq!(
+            mapped.use_synchronized_output,
+            native.use_synchronized_output
+        );
         assert_eq!(mapped.maximum_output_bytes, native.maximum_output_bytes);
         assert_eq!(
             mapped.backpressure_threshold_milliseconds,

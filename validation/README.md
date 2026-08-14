@@ -5,8 +5,9 @@ header checks, fuzzers, benchmarks, ABI baselines, and repository policy checks.
 only selects the kit through `RASTERM_BUILD_TESTS`, `RASTERM_BUILD_FUZZERS`, and
 `RASTERM_BUILD_BENCHMARKS`.
 
-`tests/` contains correctness, ABI, installed consumer, stress, and fuzz coverage.
-`benchmarks/` contains deterministic workloads and versioned performance baselines.
+`tests/` contains correctness, ABI, installed consumer, stress, seeded damage property, visual
+quality, and fuzz coverage. `benchmarks/` contains the versioned end to end corpus plus isolated
+encoder stage, palette lookup, and damage surface studies.
 
 Tests remain separate executables where process isolation, per test timeouts, allocation failure
 hooks, or ABI inspection matter. Shared target creation and include policy live in one helper so

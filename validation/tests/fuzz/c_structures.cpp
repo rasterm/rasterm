@@ -27,7 +27,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
     rasterm_engine* engine = nullptr;
     const rasterm_result created = rasterm_engine_create(&options, &engine);
     if (created == RASTERM_SUCCESS && engine != nullptr) {
-        std::array<std::uint8_t, 64> pixels{};
+        std::array<std::uint8_t, 512> pixels{};
         rasterm_frame frame;
         rasterm_frame_init(&frame);
         frame.data = pixels.data();
