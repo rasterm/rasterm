@@ -158,29 +158,13 @@ public:
                     detectedCapabilities.geometry.cellPixelHeight,
                 };
             }
-            if (options.quality == QualityProfile::HighQuality) {
-                rendererOptions.sixel = SixelOptions::ForImage();
-            }
-            else if (options.quality == QualityProfile::AdaptiveVideo) {
-                rendererOptions.sixel = SixelOptions::ForHighQualityVideo();
-                if (options.color.realtimeDither != DitherMode::None) {
-                    rendererOptions.sixel.dither = options.color.realtimeDither;
-                }
-            }
-            else {
-                rendererOptions.sixel = SixelOptions::ForRealtimeVideo();
-                rendererOptions.sixel.dither = options.color.realtimeDither;
-            }
-            rendererOptions.sixel.adaptivePaletteLockFrames =
-                std::max(0, options.color.adaptivePaletteLockFrames);
-            rendererOptions.sixel.sceneCutThreshold =
-                std::clamp(options.color.sceneCutThreshold, 0.0f, 1.0f);
-            rendererOptions.sixel.persistPaletteRegisters =
-                options.encoder.persistPaletteRegisters;
-            rendererOptions.sixel.paletteRefreshFrames = options.encoder.paletteRefreshFrames;
-            rendererOptions.sixel.maximumThreads = options.encoder.maximumThreads;
-            rendererOptions.sixel.independentRegionQuantization =
-                options.encoder.independentRegionQuantization;
+            rendererOptions.backend = {
+                .quality = options.quality,
+                .realtimeDither = options.color.realtimeDither,
+                .adaptivePaletteLockFrames = options.color.adaptivePaletteLockFrames,
+                .sceneCutThreshold = options.color.sceneCutThreshold,
+                .tuning = options.encoder,
+            };
             activeOutput = options.output != nullptr ? options.output : &stdoutOutput;
             renderer = std::make_unique<Renderer>(*activeOutput, rendererOptions);
             if (!renderer->good()) {
@@ -459,7 +443,7 @@ public:
             return;
         }
         detectedCapabilities.geometry = geometry;
-        renderer->updateCellPixels({ geometry.cellPixelWidth, geometry.cellPixelHeight });
+        renderer->updateCellPixelSize({ geometry.cellPixelWidth, geometry.cellPixelHeight });
         renderer->reset();
         emit({ .type = EventType::TerminalResized, .geometry = geometry });
     }

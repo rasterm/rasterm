@@ -1,14 +1,22 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <render/Renderer.hpp>
+#include <render/DamagePlanner.hpp>
 
-#include <backend/SixelBackend.hpp>
+#include <backend/sixel/SixelBackend.hpp>
 
 #include <algorithm>
 #include <utility>
 
 namespace rasterm {
 namespace {
+
+RendererOptions sanitize(RendererOptions options) noexcept
+{
+    options.cellPixels.width = std::max(1, options.cellPixels.width);
+    options.cellPixels.height = std::max(1, options.cellPixels.height);
+    return options;
+}
 
 class UpdateScope {
 public:
@@ -40,118 +48,20 @@ private:
     bool finished = false;
 };
 
-DamageRegion alignToTerminalCells(const DamageRegion region, const int frameWidth,
-                                  const int frameHeight, const TerminalCellPixels cells) noexcept
-{
-    const int x = (region.x / cells.cellWidth) * cells.cellWidth;
-    const int y = (region.y / cells.cellHeight) * cells.cellHeight;
-    const auto right = static_cast<std::int64_t>(region.x) + region.width;
-    const auto bottom = static_cast<std::int64_t>(region.y) + region.height;
-    const auto alignedRight = ((right + cells.cellWidth - 1) / cells.cellWidth) * cells.cellWidth;
-    const auto alignedBottom = ((bottom + cells.cellHeight - 1) / cells.cellHeight) * cells.cellHeight;
-    const int clippedRight = static_cast<int>(std::min<std::int64_t>(frameWidth, alignedRight));
-    const int clippedBottom = static_cast<int>(std::min<std::int64_t>(frameHeight, alignedBottom));
-    return { x, y, clippedRight - x, clippedBottom - y };
-}
-
-std::int64_t area(const DamageRegion region) noexcept
-{
-    return static_cast<std::int64_t>(region.width) * region.height;
-}
-
-bool mergeWithoutInflation(DamageRegion& left, const DamageRegion right) noexcept
-{
-    const int x1 = std::min(left.x, right.x);
-    const int y1 = std::min(left.y, right.y);
-    const int x2 = std::max(left.x + left.width, right.x + right.width);
-    const int y2 = std::max(left.y + left.height, right.y + right.height);
-    const int overlapWidth = std::max(0, std::min(left.x + left.width, right.x + right.width) -
-        std::max(left.x, right.x));
-    const int overlapHeight = std::max(0, std::min(left.y + left.height, right.y + right.height) -
-        std::max(left.y, right.y));
-    const std::int64_t unionArea = area(left) + area(right) -
-        static_cast<std::int64_t>(overlapWidth) * overlapHeight;
-    const DamageRegion bounds{ x1, y1, x2 - x1, y2 - y1 };
-    if (area(bounds) != unionArea) return false;
-    left = bounds;
-    return true;
-}
-
-void normalizeDamage(std::vector<DamageRegion>& regions)
-{
-    bool merged = true;
-    while (merged) {
-        merged = false;
-        for (std::size_t first = 0; first < regions.size() && !merged; ++first) {
-            for (std::size_t second = first + 1; second < regions.size(); ++second) {
-                if (mergeWithoutInflation(regions[first], regions[second])) {
-                    regions.erase(regions.begin() + static_cast<std::ptrdiff_t>(second));
-                    merged = true;
-                    break;
-                }
-            }
-        }
-    }
-    std::sort(regions.begin(), regions.end(), [](const DamageRegion left,
-                                                  const DamageRegion right) {
-        return left.y != right.y ? left.y < right.y : left.x < right.x;
-    });
-}
-
-bool canPresentWithoutBottomScroll(const std::span<const DamageRegion> regions,
-                                   const int frameHeight) noexcept
-{
-    return std::none_of(regions.begin(), regions.end(), [frameHeight](const DamageRegion region) {
-        return region.y + region.height == frameHeight;
-    });
-}
-
-bool planDamagePresentation(std::vector<DamageRegion>& regions, const int frameWidth,
-                            const int frameHeight, const TerminalCellPixels cells,
-                            const float fullFrameThreshold)
-{
-    if (regions.empty()) return false;
-    normalizeDamage(regions);
-
-    std::int64_t changedArea = 0;
-    DamageRegion bounds = regions.front();
-    for (const DamageRegion region : regions) {
-        changedArea += area(region);
-        const int right = std::max(bounds.x + bounds.width, region.x + region.width);
-        const int bottom = std::max(bounds.y + bounds.height, region.y + region.height);
-        bounds.x = std::min(bounds.x, region.x);
-        bounds.y = std::min(bounds.y, region.y);
-        bounds.width = right - bounds.x;
-        bounds.height = bottom - bounds.y;
-    }
-
-    const std::int64_t frameArea = static_cast<std::int64_t>(frameWidth) * frameHeight;
-    if (changedArea >= static_cast<double>(frameArea) * fullFrameThreshold) return true;
-    if (regions.size() == 1) return false;
-
-    const std::int64_t cursorAndFrameCost = static_cast<std::int64_t>(cells.cellWidth) *
-        cells.cellHeight * 2 * static_cast<std::int64_t>(regions.size() - 1);
-    const std::int64_t proportionalAllowance = changedArea /
-        (regions.size() >= 8 ? 4 : 8);
-    if (area(bounds) <= changedArea + std::max(cursorAndFrameCost, proportionalAllowance)) {
-        regions.assign(1, bounds);
-        return area(bounds) >= static_cast<double>(frameArea) * fullFrameThreshold;
-    }
-    return false;
-}
-
 }
 
 Renderer::Renderer(OutputSink& output, RendererOptions options) :
-    options(std::move(options)),
+    options(sanitize(std::move(options))),
     terminal(output, this->options.useAlternateScreen),
-    backend(std::make_unique<SixelBackend>(this->options.sixel)),
+    backend(std::make_unique<SixelBackend>(this->options.backend)),
     damage([&] {
         auto config = this->options.damage;
-        config.tileWidth = std::max(config.tileWidth, this->options.cellPixels.cellWidth);
-        config.tileHeight = std::max(config.tileHeight, this->options.cellPixels.cellHeight);
-        config.tileWidth = (config.tileWidth / this->options.cellPixels.cellWidth) * this->options.cellPixels.cellWidth;
-        config.tileHeight = (config.tileHeight / this->options.cellPixels.cellHeight) * this->options.cellPixels.cellHeight;
+        config.tileWidth = std::max(config.tileWidth, this->options.cellPixels.width);
+        config.tileHeight = std::max(config.tileHeight, this->options.cellPixels.height);
+        config.tileWidth = (config.tileWidth / this->options.cellPixels.width) *
+            this->options.cellPixels.width;
+        config.tileHeight = (config.tileHeight / this->options.cellPixels.height) *
+            this->options.cellPixels.height;
         return config;
     }())
 {
@@ -166,7 +76,7 @@ ErrorCode Renderer::clear()
 
 void Renderer::reset()
 {
-    backend->reset();
+    backend->invalidate(BackendInvalidation::All);
     damage.reset();
     usingSuppliedDamage = false;
     previousWidth = 0;
@@ -189,19 +99,19 @@ std::size_t Renderer::outputCapacity() const noexcept
     return backend->outputCapacity() + transactionBytes.capacity();
 }
 
-void Renderer::updateCellPixels(const TerminalCellPixels cellPixels)
+void Renderer::updateCellPixelSize(const CellPixelSize cellPixelSize)
 {
-    if (cellPixels.cellWidth <= 0 || cellPixels.cellHeight <= 0 ||
-        (cellPixels.cellWidth == options.cellPixels.cellWidth &&
-         cellPixels.cellHeight == options.cellPixels.cellHeight)) {
+    if (cellPixelSize.width <= 0 || cellPixelSize.height <= 0 ||
+        (cellPixelSize.width == options.cellPixels.width &&
+         cellPixelSize.height == options.cellPixels.height)) {
         return;
     }
-    options.cellPixels = cellPixels;
+    options.cellPixels = cellPixelSize;
     auto config = options.damage;
-    config.tileWidth = std::max(config.tileWidth, cellPixels.cellWidth);
-    config.tileHeight = std::max(config.tileHeight, cellPixels.cellHeight);
-    config.tileWidth = (config.tileWidth / cellPixels.cellWidth) * cellPixels.cellWidth;
-    config.tileHeight = (config.tileHeight / cellPixels.cellHeight) * cellPixels.cellHeight;
+    config.tileWidth = std::max(config.tileWidth, cellPixelSize.width);
+    config.tileHeight = std::max(config.tileHeight, cellPixelSize.height);
+    config.tileWidth = (config.tileWidth / cellPixelSize.width) * cellPixelSize.width;
+    config.tileHeight = (config.tileHeight / cellPixelSize.height) * cellPixelSize.height;
     damage = DamageTracker(config);
     usingSuppliedDamage = false;
     previousWidth = 0;
@@ -255,11 +165,14 @@ RenderResult Renderer::renderFrame(const Frame& frame)
 
     if (!options.enableDirtyRegions) {
         const auto encodeStart = std::chrono::steady_clock::now();
-        backend->prepareFrame(frame);
-        backend->setOutputLimit(options.maximumOutputBytes);
-        const std::string_view sixel = backend->encodeFrame(frame);
+        backend->beginFrame(frame, FramePreparation::FullFrame);
+        const EncodedUpdate encoded = backend->encode(frame, {
+            .maximumBytes = options.maximumOutputBytes,
+            .fullFrame = true,
+        });
+        const std::string_view sixel = encoded.bytes;
         const auto encodeEnd = std::chrono::steady_clock::now();
-        if (backend->outputLimitExceeded()) {
+        if (encoded.outputLimitExceeded) {
             reset();
             return { .error = ErrorCode::OutputBufferLimitExceeded,
                      .scratchBytes = scratchCapacity(),
@@ -297,7 +210,7 @@ RenderResult Renderer::renderFrame(const Frame& frame)
                  .wireBytes = terminal.acceptedBytes() - wireStart,
                  .scratchBytes = scratchCapacity(),
                  .outputCapacityBytes = outputCapacity(),
-                 .colorsUsed = backend->lastColorCount(),
+                 .colorsUsed = encoded.colorsUsed,
                  .encodeDuration = std::chrono::duration_cast<std::chrono::microseconds>(encodeEnd - encodeStart),
                  .presentDuration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - presentStart) };
     }
@@ -311,11 +224,11 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         suppliedDamage.clear();
         suppliedDamage.reserve(frame.metadata.damage.count);
         for (std::size_t index = 0; index < frame.metadata.damage.count; ++index) {
-            suppliedDamage.push_back(alignToTerminalCells(
+            suppliedDamage.push_back(alignDamageToCells(
                 frame.metadata.damage.rectangles[index], frame.width, frame.height,
                 options.cellPixels));
         }
-        normalizeDamage(suppliedDamage);
+        normalizePresentationDamage(suppliedDamage);
         const auto regions = std::span<const DamageRegion>(suppliedDamage);
         const bool coversFrame = previousWidth == 0 || dimensionsChanged || frameIdentityChanged ||
             (regions.size() == 1 && regions[0].x == 0 && regions[0].y == 0 &&
@@ -339,9 +252,13 @@ RenderResult Renderer::renderFrame(const Frame& frame)
     }
     if (!difference.isFullFrame) {
         presentationDamage.assign(difference.regions.begin(), difference.regions.end());
+        const bool adaptivePalette = options.backend.quality != QualityProfile::Realtime;
+        const int estimatedColors = options.backend.quality == QualityProfile::HighQuality
+            ? 255 : adaptivePalette ? 128 : 204;
         difference.isFullFrame = planDamagePresentation(
             presentationDamage, frame.width, frame.height, options.cellPixels,
-            options.damage.fullFrameThreshold);
+            options.useSynchronizedOutput, estimatedColors,
+            adaptivePalette && options.backend.tuning.independentRegionQuantization).useFullFrame;
         difference.regions = presentationDamage;
     }
 
@@ -355,11 +272,14 @@ RenderResult Renderer::renderFrame(const Frame& frame)
 
     if (difference.isFullFrame) {
         const auto encodeStart = std::chrono::steady_clock::now();
-        backend->prepareFrame(frame);
-        backend->setOutputLimit(options.maximumOutputBytes);
-        const std::string_view sixel = backend->encodeFrame(frame);
+        backend->beginFrame(frame, FramePreparation::FullFrame);
+        const EncodedUpdate encoded = backend->encode(frame, {
+            .maximumBytes = options.maximumOutputBytes,
+            .fullFrame = true,
+        });
+        const std::string_view sixel = encoded.bytes;
         const auto encodeEnd = std::chrono::steady_clock::now();
-        if (backend->outputLimitExceeded()) {
+        if (encoded.outputLimitExceeded) {
             reset();
             return { .error = ErrorCode::OutputBufferLimitExceeded,
                      .scratchBytes = scratchCapacity(),
@@ -397,7 +317,7 @@ RenderResult Renderer::renderFrame(const Frame& frame)
                  .wireBytes = terminal.acceptedBytes() - wireStart,
                  .scratchBytes = scratchCapacity(),
                  .outputCapacityBytes = outputCapacity(),
-                 .colorsUsed = backend->lastColorCount(),
+                 .colorsUsed = encoded.colorsUsed,
                  .encodeDuration = std::chrono::duration_cast<std::chrono::microseconds>(encodeEnd - encodeStart),
                  .presentDuration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - presentStart) };
     }
@@ -406,7 +326,7 @@ RenderResult Renderer::renderFrame(const Frame& frame)
     encodedRegions.clear();
     encodedRegions.reserve(difference.regions.size());
     const auto encodeStart = std::chrono::steady_clock::now();
-    backend->prepareRegionalFrame(frame);
+    backend->beginFrame(frame, FramePreparation::Regional);
     int transactionColors = 0;
     for (const DamageRegion& region : difference.regions) {
         if (options.maximumOutputBytes > 0 &&
@@ -420,10 +340,13 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         }
         const std::size_t remaining = options.maximumOutputBytes == 0
             ? 0 : options.maximumOutputBytes - transactionBytes.size();
-        backend->prepareRegion(frame, region);
-        backend->setOutputLimit(remaining);
-        const std::string_view sixel = backend->encodeRegion(frame, region);
-        if (backend->outputLimitExceeded()) {
+        const EncodedUpdate update = backend->encode(frame, {
+            .region = region,
+            .maximumBytes = remaining,
+            .fullFrame = false,
+        });
+        const std::string_view sixel = update.bytes;
+        if (update.outputLimitExceeded) {
             reset();
             return { .error = ErrorCode::OutputBufferLimitExceeded,
                      .scratchBytes = scratchCapacity(),
@@ -433,7 +356,7 @@ RenderResult Renderer::renderFrame(const Frame& frame)
         }
         const std::size_t offset = transactionBytes.size();
         transactionBytes.append(sixel);
-        const int colors = backend->lastColorCount();
+        const int colors = update.colorsUsed;
         transactionColors = std::max(transactionColors, colors);
         encodedRegions.push_back({ region, offset, sixel.size(), colors });
     }
@@ -455,8 +378,8 @@ RenderResult Renderer::renderFrame(const Frame& frame)
     const auto presentStart = std::chrono::steady_clock::now();
     for (const EncodedRegion& encoded : encodedRegions) {
         const std::string_view sixel(transactionBytes.data() + encoded.offset, encoded.size);
-        outputSucceeded = terminal.drawAtCell(encoded.region.y / options.cellPixels.cellHeight,
-                                              encoded.region.x / options.cellPixels.cellWidth,
+        outputSucceeded = terminal.drawAtCell(encoded.region.y / options.cellPixels.height,
+                                              encoded.region.x / options.cellPixels.width,
                                               sixel, false, options.outputChunkBytes) &&
             outputSucceeded;
     }

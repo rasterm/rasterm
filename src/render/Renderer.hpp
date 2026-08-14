@@ -6,8 +6,6 @@
 #include <damage/DamageRegion.hpp>
 
 #include <backend/GraphicsBackend.hpp>
-#include <encoder/SixelEncoder.hpp>
-
 #include <output/TerminalRenderer.hpp>
 
 #include <chrono>
@@ -20,6 +18,11 @@
 
 namespace rasterm {
 
+struct CellPixelSize {
+    int width = 10;
+    int height = 20;
+};
+
 struct RendererOptions {
     bool useAlternateScreen = false;
     bool preserveCursor = true;
@@ -27,9 +30,9 @@ struct RendererOptions {
     bool useSynchronizedOutput = true;
     std::size_t maximumOutputBytes = 0;
     std::size_t outputChunkBytes = 64 * 1024;
-    TerminalCellPixels cellPixels{};
+    CellPixelSize cellPixels{};
     DamageOptions damage{};
-    SixelOptions sixel = SixelOptions::ForRealtimeVideo();
+    BackendConfiguration backend{};
 };
 
 struct RenderResult {
@@ -52,7 +55,7 @@ public:
 
     ErrorCode clear();
     void reset();
-    void updateCellPixels(TerminalCellPixels cellPixels);
+    void updateCellPixelSize(CellPixelSize cellPixelSize);
     [[nodiscard]] bool good() const noexcept { return terminal.good(); }
     [[nodiscard]] ErrorCode error() const noexcept { return terminal.error(); }
     RenderResult render(const FrameView& frame);
