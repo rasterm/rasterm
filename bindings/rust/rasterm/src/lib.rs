@@ -751,6 +751,34 @@ mod tests {
     #[test]
     fn linked_library_matches_binding_version() {
         assert_eq!(unsafe { sys::rasterm_c_api_version() }, C_API_VERSION);
-        assert_eq!(version(), (1, 2, 0));
+        assert_eq!(version(), (1, 3, 0));
+    }
+
+    #[test]
+    fn safe_defaults_match_c_initializer() {
+        let mapped = EngineOptions::default().raw();
+        let mut native = MaybeUninit::uninit();
+        unsafe { sys::rasterm_engine_options_init(native.as_mut_ptr()) };
+        let native = unsafe { native.assume_init() };
+        assert_eq!(mapped.quality, native.quality);
+        assert_eq!(mapped.use_alternate_screen, native.use_alternate_screen);
+        assert_eq!(mapped.preserve_cursor, native.preserve_cursor);
+        assert_eq!(mapped.enable_dirty_regions, native.enable_dirty_regions);
+        assert_eq!(mapped.require_sixel_support, native.require_sixel_support);
+        assert_eq!(mapped.use_synchronized_output, native.use_synchronized_output);
+        assert_eq!(mapped.maximum_output_bytes, native.maximum_output_bytes);
+        assert_eq!(
+            mapped.backpressure_threshold_milliseconds,
+            native.backpressure_threshold_milliseconds
+        );
+        assert_eq!(mapped.convert_to_srgb, native.convert_to_srgb);
+        assert_eq!(mapped.tone_map, native.tone_map);
+        assert_eq!(mapped.output_peak_nits, native.output_peak_nits);
+        assert_eq!(mapped.realtime_dither, native.realtime_dither);
+        assert_eq!(
+            mapped.adaptive_palette_lock_frames,
+            native.adaptive_palette_lock_frames
+        );
+        assert_eq!(mapped.scene_cut_threshold, native.scene_cut_threshold);
     }
 }
