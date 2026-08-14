@@ -32,7 +32,7 @@ inline QualityFixture fixture(std::string_view name, const double maximumError,
                               const double maximumBias = 2.0,
                               const int width = 96, const int height = 60)
 {
-    QualityFixture result{ name, width, height, maximumError, maximumBias };
+    QualityFixture result{ name, width, height, maximumError, maximumBias, {} };
     result.pixels.resize(static_cast<std::size_t>(result.width) * result.height * 3);
     return result;
 }
