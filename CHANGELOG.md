@@ -3,6 +3,68 @@
 All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and Semantic Versioning.
 
+## [Unreleased]
+
+## [1.3.0] - 2026-08-14
+
+### Added
+
+- Dependency free packed pixel resampling with fit, fill, stretch, integer, crop, and no scale
+  layouts. Nearest, linear, cubic, and area filtering. Background fill, contrast, and sharpening.
+- Safe tightly packed frame helpers and span based palette construction while preserving the
+  aggregate zero overhead frame views.
+- A canonical installed C defaults table with C, C++, Rust, and Python conformance coverage.
+- A public API ownership, threading, error, and compatibility inventory plus a runnable callback
+  reentrancy and custom output capability override example.
+- Independent first and only include compilation for every installed C and C++ header.
+- Private protocol independent `EncodeRequest` and `EncodedUpdate` contracts between renderer
+  policy and graphics backends, without widening the public API or C ABI.
+- Private nanosecond stage measurements for palette analysis, palette mapping, SIXEL writing,
+  and output budget commit work.
+- Deterministic Microsoft compatible decode fixtures for gradients, skin tones, dark scenes,
+  UI text, and high motion content.
+- Seeded randomized damage properties covering 20,000 cell alignment, clipping, merging,
+  bottom row, arbitrary cell size, and integer boundary cases.
+- Focused benchmark tools for scalar/AVX2/AVX-512 dispatch, palette lookup compression, and
+  full frame versus regional encoding from small through high DPI surfaces.
+
+### Changed
+
+- Organize private protocol code under `src/encoder/sixel` and `src/backend/sixel`, generic
+  resampling under `src/scaling`, and platform selected sources under `src/platform`.
+- Consolidate correctness tests, ABI checks, fuzzers, installed header checks, and benchmarks
+  behind one `validation/CMakeLists.txt` kit while retaining isolated test executables.
+- Keep renderer policy protocol neutral by translating quality and encoder tuning into private
+  `SixelOptions` only inside `SixelBackend`.
+- Replace area threshold presentation heuristics with a measured cost model for estimated SIXEL
+  bytes, cursor positioning, palette definitions, synchronized output, and shared versus
+  independent regional palettes.
+- Formalize persistent palette ownership: another terminal graphics producer requires
+  `Engine::reset()` or `Presenter::invalidate()` before rasterm presents again.
+- Retain the existing 32 KiB fixed palette lookup after the measured 4 KiB candidate changed
+  20-100% of palette selections for only a modest cache improvement.
+
+### Fixed
+
+- Restore high quality still-image fidelity with 255-color perceptual palettes, palette aware
+  Floyd Steinberg diffusion, and fine nearest palette mapping instead of quantizing through an
+  unrelated coarse RGB grid. Add photograph sized channel bias and RGB/BGR equivalence regressions.
+- Make output limit failures fully transactional by discarding private partial output, restoring
+  palette register state, and emitting no cursor, synchronization, palette, or SIXEL bytes.
+- Prevent cell alignment and region cost arithmetic from overflowing near integer boundaries.
+- Clip partially out of bounds internal damage safely and sanitize invalid renderer cell sizes.
+- Preserve separate distant regions and merge nearby regions according to actual backend palette
+  reuse instead of assuming every region pays for an independent palette.
+
+### Performance
+
+- Keep scalar fixed palette mapping as automatic dispatch after isolated Release measurements
+  found no stable AVX2 crossover through width 1920 on the tested system, forced SIMD modes remain
+  available to the internal benchmark for hardware specific research.
+- Measure cell aligned 10% regional updates at roughly 0.005, 0.025, 0.090, and 0.156 ms median on
+  320x180, 800x450, 1920x1080, and 2800x1400 low entropy memory sink surfaces respectively.
+- Preserve the allocation free warmed public path and keep all new stage metrics private.
+
 ## [1.2.0] - 2026-08-12
 
 ### Added
@@ -72,7 +134,7 @@ and Semantic Versioning.
 - Keep the root `vcpkg.json` dependency free and scoped to the rasterm core rather than optional
   multimedia application dependencies.
 - Update build scripts, CI commands, documentation, and Rust local library discovery for the
-  application- ocal build layout.
+  application-local build layout.
 - Document RGBA32, BGRA32, and RGBA4444 as encoding stored RGB while ignoring alpha so rasterm 1.2
   does not infer straight or premultiplied alpha or perform alpha compositing.
 
