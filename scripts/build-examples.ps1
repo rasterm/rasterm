@@ -13,7 +13,8 @@ $sourceRoot = Join-Path $repoRoot 'apps\examples'
 $buildRoot = Join-Path $sourceRoot 'build'
 $cmake = (Get-Command cmake.exe -ErrorAction Stop).Source
 
-& $cmake -S $sourceRoot -B $buildRoot -A x64
+& $cmake -S $sourceRoot -B $buildRoot -A x64 `
+    "-DCMAKE_VS_GLOBALS=VcpkgEnabled=false"
 if ($LASTEXITCODE -ne 0) { throw 'rasterm examples configuration failed.' }
 
 & $cmake --build $buildRoot --config $Configuration --parallel $Jobs

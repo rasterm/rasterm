@@ -59,7 +59,7 @@ foreach ($current in $configurations) {
     if ($RunBenchmarks) {
         $env:RASTERM_BENCH_ITERATIONS = '5'
         try {
-            & (Join-Path $buildRoot "$current\rasterm-encoder-benchmark.exe") | Out-Null
+            & (Join-Path $buildRoot "validation\$current\rasterm-encoder-benchmark.exe") | Out-Null
             $benchmarkExitCode = $LASTEXITCODE
         }
         finally {
@@ -81,7 +81,8 @@ foreach ($current in $configurations) {
             $consumerSource = Join-Path $repoRoot "validation\tests\$consumer"
             $consumerBuild = Join-Path $repoRoot "build\rasterm-consumers\$current\$consumer"
             & $cmake -S $consumerSource -B $consumerBuild -A x64 `
-                "-DCMAKE_PREFIX_PATH=$installRoot"
+                "-DCMAKE_PREFIX_PATH=$installRoot" `
+                "-DCMAKE_VS_GLOBALS=VcpkgEnabled=false"
             if ($LASTEXITCODE -ne 0) { throw "$consumer $current configuration failed." }
             & $cmake --build $consumerBuild --config $current --parallel $Jobs
             if ($LASTEXITCODE -ne 0) { throw "$consumer $current build failed." }
