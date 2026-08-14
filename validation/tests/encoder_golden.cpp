@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <encoder/SixelEncoder.hpp>
-#include <encoder/SixelSimd.hpp>
+#include <encoder/sixel/SixelEncoder.hpp>
+#include <encoder/sixel/SixelSimd.hpp>
 
 #include <rasterm/rasterm.hpp>
 
@@ -63,7 +63,7 @@ rasterm::RgbColor sixelQuantized(const rasterm::RgbColor color)
     return { channel(color.red), channel(color.green), channel(color.blue) };
 }
 
-bool exactRoundTrip(rasterm::VideoSixelEncoder& encoder,
+bool exactRoundTrip(rasterm::SixelEncoder& encoder,
                     const rasterm::IndexedFrameView frame)
 {
     const auto decoded = rasterm::test::MicrosoftSixelHarness{}.parse(encoder.encodeFrame(frame));
@@ -98,7 +98,7 @@ constexpr std::array<rasterm::RgbColor, 64> nesPalette{{
 
 int main()
 {
-    rasterm::VideoSixelEncoder encoder;
+    rasterm::SixelEncoder encoder;
     rasterm::test::MicrosoftSixelHarness parser;
 
     std::uint8_t redIndex = 0;
@@ -304,9 +304,9 @@ int main()
         return 17;
     }
 
-    auto ditherOptions = rasterm::SixelOptions::ForRealtimeVideo();
+    auto ditherOptions = rasterm::SixelOptions::forVideo();
     ditherOptions.dither = rasterm::DitherMode::OrderedBayer4x4;
-    rasterm::VideoSixelEncoder ditherEncoder(ditherOptions);
+    rasterm::SixelEncoder ditherEncoder(ditherOptions);
     if (ditherEncoder.encodeFrame(rgbFrame) != ditherEncoder.encodeFrame(rgbaFrame) ||
         ditherEncoder.encodeFrame(rgbFrame) != ditherEncoder.encodeFrame(bgraFrame)) {
         return 18;
@@ -395,18 +395,25 @@ int main()
         return 12;
     }
 
-    auto persistentOptions = rasterm::SixelOptions::ForRealtimeVideo();
+    auto persistentOptions = rasterm::SixelOptions::forVideo();
     persistentOptions.persistPaletteRegisters = true;
     persistentOptions.paletteRefreshFrames = 2;
-    rasterm::VideoSixelEncoder persistent(persistentOptions);
+    rasterm::SixelEncoder persistent(persistentOptions);
     persistent.prepareFrame(rgbFrame);
     const std::string firstPersistent(persistent.encodeFrame(rgbFrame));
     persistent.prepareFrame(rgbFrame);
     const std::string reusedPersistent(persistent.encodeFrame(rgbFrame));
+    persistent.invalidatePaletteRegisters();
+    persistent.prepareFrame(rgbFrame);
+    const std::string invalidatedPersistent(persistent.encodeFrame(rgbFrame));
+    persistent.prepareFrame(rgbFrame);
+    const std::string reusedAfterInvalidation(persistent.encodeFrame(rgbFrame));
     persistent.prepareFrame(rgbFrame);
     const std::string refreshedPersistent(persistent.encodeFrame(rgbFrame));
     if (firstPersistent.find("#1;2;") == std::string::npos ||
         reusedPersistent.find("#1;2;") != std::string::npos ||
+        invalidatedPersistent.find("#1;2;") == std::string::npos ||
+        reusedAfterInvalidation.find("#1;2;") != std::string::npos ||
         refreshedPersistent.find("#1;2;") == std::string::npos ||
         reusedPersistent.size() >= firstPersistent.size()) return 22;
     persistent.reset();
@@ -422,10 +429,10 @@ int main()
     const rasterm::FrameView regionalFrame{
         regionalPixels.data(), 24, 12, 24 * 3, rasterm::PixelFormat::RGB24
     };
-    auto regionalOptions = rasterm::SixelOptions::ForHighQualityVideo();
+    auto regionalOptions = rasterm::SixelOptions::forAdaptiveVideo();
     regionalOptions.dither = rasterm::DitherMode::None;
     regionalOptions.independentRegionQuantization = true;
-    rasterm::VideoSixelEncoder regional(regionalOptions);
+    rasterm::SixelEncoder regional(regionalOptions);
     regional.prepareFrame(regionalFrame);
     const rasterm::DamageRegion leftRegion{ 0, 0, 12, 12 };
     regional.prepareRegion(regionalFrame, leftRegion);
@@ -449,15 +456,15 @@ int main()
         parallelPixels.data(), parallelWidth, parallelHeight, parallelWidth * 3,
         rasterm::PixelFormat::RGB24
     };
-    auto scalarOptions = rasterm::SixelOptions::ForRealtimeVideo();
+    auto scalarOptions = rasterm::SixelOptions::forVideo();
     scalarOptions.maximumThreads = 1;
-    rasterm::setSixelAvx2ModeForTesting(0);
-    rasterm::VideoSixelEncoder scalarEncoder(scalarOptions);
+    rasterm::setSixelSimdModeForTesting(0);
+    rasterm::SixelEncoder scalarEncoder(scalarOptions);
     const std::string scalarOutput(scalarEncoder.encodeFrame(parallelFrame));
-    rasterm::setSixelAvx2ModeForTesting(-1);
-    auto parallelOptions = rasterm::SixelOptions::ForRealtimeVideo();
+    rasterm::setSixelSimdModeForTesting(-1);
+    auto parallelOptions = rasterm::SixelOptions::forVideo();
     parallelOptions.maximumThreads = 4;
-    rasterm::VideoSixelEncoder parallelEncoder(parallelOptions);
+    rasterm::SixelEncoder parallelEncoder(parallelOptions);
     if (scalarOutput != parallelEncoder.encodeFrame(parallelFrame)) return 26;
 
     encoder.setOutputLimit(32);

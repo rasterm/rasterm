@@ -2,7 +2,7 @@
 
 #include <color/ColorConverter.hpp>
 
-#include <encoder/SixelEncoder.hpp>
+#include <encoder/sixel/SixelEncoder.hpp>
 
 #include <rasterm/rasterm.hpp>
 
@@ -43,9 +43,9 @@ int main()
     for (std::size_t index = 0; index < gradient.size(); ++index) {
         gradient[index] = static_cast<std::uint8_t>((index * 17) & 0xff);
     }
-    rasterm::SixelOptions options = rasterm::SixelOptions::ForRealtimeVideo();
+    rasterm::SixelOptions options = rasterm::SixelOptions::forVideo();
     options.dither = rasterm::DitherMode::OrderedBayer4x4;
-    rasterm::VideoSixelEncoder encoder(options);
+    rasterm::SixelEncoder encoder(options);
     const rasterm::FrameView frame{ gradient.data(), 64, 6, 64 * 3, rasterm::PixelFormat::RGB24 };
     const std::string first(encoder.encodeFrame(frame));
     const std::string second(encoder.encodeFrame(frame));

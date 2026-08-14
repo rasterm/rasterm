@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <color/ColorConverter.hpp>
-#include <encoder/SixelEncoder.hpp>
-#include <encoder/SixelSimd.hpp>
+#include <encoder/sixel/SixelEncoder.hpp>
+#include <encoder/sixel/SixelSimd.hpp>
 
 #include <validation/tests/fixtures/ColorReferenceFixtures.hpp>
 #include <validation/tests/support/ColorMetrics.hpp>
@@ -131,7 +131,7 @@ int main()
         };
         indices[index] = static_cast<std::uint8_t>(index);
     }
-    rasterm::VideoSixelEncoder indexedEncoder;
+    rasterm::SixelEncoder indexedEncoder;
     const rasterm::IndexedFrameView indexed{
         indices.data(), 256, 1, 256, { palette.data(), palette.size() },
     };
@@ -159,9 +159,9 @@ int main()
     constexpr int height = 24;
     auto stable = makeTemporalFrame(30);
     auto motion = makeTemporalFrame(30, 1);
-    rasterm::SixelOptions ditherOptions = rasterm::SixelOptions::ForRealtimeVideo();
+    rasterm::SixelOptions ditherOptions = rasterm::SixelOptions::forVideo();
     ditherOptions.dither = rasterm::DitherMode::OrderedBayer4x4;
-    rasterm::VideoSixelEncoder ditherEncoder(ditherOptions);
+    rasterm::SixelEncoder ditherEncoder(ditherOptions);
     const auto view = [](const std::vector<std::uint8_t>& pixels) {
         return rasterm::FrameView{
             pixels.data(), width, height, width * 3, rasterm::PixelFormat::RGB24,
@@ -172,11 +172,11 @@ int main()
     const std::string stableAgain(ditherEncoder.encodeFrame(view(stable)));
     if (stableFirst != stableAgain || stableFirst == motionFrame) return 5;
 
-    rasterm::SixelOptions adaptiveOptions = rasterm::SixelOptions::ForHighQualityVideo();
+    rasterm::SixelOptions adaptiveOptions = rasterm::SixelOptions::forAdaptiveVideo();
     adaptiveOptions.dither = rasterm::DitherMode::OrderedBayer4x4;
     adaptiveOptions.adaptivePaletteLockFrames = 8;
     adaptiveOptions.sceneCutThreshold = 0.30f;
-    rasterm::VideoSixelEncoder adaptiveEncoder(adaptiveOptions);
+    rasterm::SixelEncoder adaptiveEncoder(adaptiveOptions);
     const std::string paletteA(adaptiveEncoder.encodeFrame(view(stable)));
     const std::string paletteARepeat(adaptiveEncoder.encodeFrame(view(stable)));
     if (paletteA != paletteARepeat) return 6;
@@ -185,17 +185,18 @@ int main()
     const std::string paletteSmallChange(adaptiveEncoder.encodeFrame(view(smallChange)));
     if (paletteDefinitions(paletteA) != paletteDefinitions(paletteSmallChange)) return 7;
     auto hardCut = makeTemporalFrame(210);
+    std::fill(hardCut.begin(), hardCut.end(), static_cast<std::uint8_t>(230));
     const std::string paletteB(adaptiveEncoder.encodeFrame(view(hardCut)));
     if (paletteDefinitions(paletteA) == paletteDefinitions(paletteB)) return 8;
 
     auto simdPixels = makeTemporalFrame(20);
-    rasterm::SixelOptions simdOptions = rasterm::SixelOptions::ForRealtimeVideo();
-    rasterm::VideoSixelEncoder scalarEncoder(simdOptions);
-    rasterm::setSixelAvx2ModeForTesting(0);
+    rasterm::SixelOptions simdOptions = rasterm::SixelOptions::forVideo();
+    rasterm::SixelEncoder scalarEncoder(simdOptions);
+    rasterm::setSixelSimdModeForTesting(0);
     if (rasterm::sixelAvx2Enabled()) return 9;
     const std::string scalar(scalarEncoder.encodeFrame(view(simdPixels)));
-    rasterm::setSixelAvx2ModeForTesting(-1);
-    rasterm::VideoSixelEncoder dispatchedEncoder(simdOptions);
+    rasterm::setSixelSimdModeForTesting(-1);
+    rasterm::SixelEncoder dispatchedEncoder(simdOptions);
     const std::string dispatched(dispatchedEncoder.encodeFrame(view(simdPixels)));
     if (scalar != dispatched) return 10;
 

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <encoder/SixelWriter.hpp>
+#include <encoder/sixel/SixelWriter.hpp>
 
 #include <algorithm>
 #include <cstddef>

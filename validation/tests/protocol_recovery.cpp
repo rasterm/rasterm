@@ -177,7 +177,7 @@ int main()
         std::string_view(sink.bytes).substr(unalignedStart));
     if (!alignedPatch.complete || alignedPatch.width != 7 || alignedPatch.height != 13) return 18;
 
-    renderer.updateCellPixels({ 14, 13 });
+    renderer.updateCellPixelSize({ 14, 13 });
     renderer.reset();
     if (!renderer.render(frame).rendered) return 19;
 
@@ -196,5 +196,26 @@ int main()
     const rasterm::DamageRect bottomDamage{ 0, 120, 10, 20 };
     bottomFrame.metadata.damage = { &bottomDamage, 1, true };
     if (!bottomRenderer.render(bottomFrame).usedFullFrame) return 23;
+
+    FaultSink limitedSink;
+    rasterm::Renderer limitedRenderer(limitedSink, {
+        .preserveCursor = false,
+        .enableDirtyRegions = false,
+        .useSynchronizedOutput = false,
+        .maximumOutputBytes = 64,
+    });
+    const std::size_t beforeLimitedFrame = limitedSink.bytes.size();
+    std::array<std::uint8_t, 32 * 32 * 3> limitedPixels{};
+    for (std::size_t index = 0; index < limitedPixels.size(); ++index) {
+        limitedPixels[index] = static_cast<std::uint8_t>((index * 131 + index / 7) & 0xff);
+    }
+    const rasterm::FrameView limitedFrame{
+        limitedPixels.data(), 32, 32, 32 * 3, rasterm::PixelFormat::RGB24
+    };
+    const auto limitedResult = limitedRenderer.render(limitedFrame);
+    if (limitedResult.error != rasterm::ErrorCode::OutputBufferLimitExceeded ||
+        limitedResult.rendered || limitedSink.bytes.size() != beforeLimitedFrame) {
+        return 27;
+    }
     return 0;
 }

@@ -18,6 +18,10 @@ bool matches(const rasterm_color_metadata& c, const rasterm::ColorMetadata& cpp)
 
 int main()
 {
+    static_assert(RASTERM_DEFAULT_QUALITY == static_cast<int>(rasterm::QualityProfile::Realtime));
+    static_assert(RASTERM_DEFAULT_TONE_MAP == static_cast<int>(rasterm::ToneMapOperator::Aces));
+    static_assert(RASTERM_DEFAULT_OUTPUT_CHUNK_BYTES == 64U * 1024U);
+
     rasterm_engine_options c;
     rasterm_engine_options_init(&c);
     const rasterm::EngineOptions cpp;
@@ -46,7 +50,9 @@ int main()
         c.maximum_encoder_threads != cpp.encoder.maximumThreads ||
         (c.independent_region_quantization != 0) !=
             cpp.encoder.independentRegionQuantization ||
-        c.output_context != nullptr || c.write != nullptr || c.flush != nullptr) return 1;
+        c.output_context != nullptr || c.write != nullptr || c.flush != nullptr ||
+        cpp.quality != static_cast<rasterm::QualityProfile>(RASTERM_DEFAULT_QUALITY) ||
+        cpp.encoder.outputChunkBytes != RASTERM_DEFAULT_OUTPUT_CHUNK_BYTES) return 1;
 
     rasterm_frame frame;
     rasterm_frame_init(&frame);
