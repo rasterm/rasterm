@@ -27,7 +27,7 @@ public:
 
     [[nodiscard]] Status initialize(const PresenterOptions& options = {});
 
-    /* initialize, shutdown, move, and destruction must not run from callbacks
+    /* initialization, shutdown, move, and destruction must not run from callbacks
        invoked by the Presenter worker. read only queries remain reentrant. */
 
     void shutdown() noexcept;
@@ -35,10 +35,10 @@ public:
     [[nodiscard]] bool waitUntilIdle(std::chrono::milliseconds timeout);
     [[nodiscard]] bool invalidate();
 
-    /* copies use a capacity one mailbox and never wait for terminal output.
+    /* copied submissions use a capacity one mailbox and never wait for terminal output.
        replacing a compatible pending regional frame preserves accumulated damage.
-       shared submissions retain lifetime through presentation lifetime
-       must own pixels, palettes, damage rectangles, and referenced metadata. */
+       shared submissions retain a caller provided lifetime token through presentation.
+       that token must own pixels, palettes, damage rectangles, and referenced metadata. */
 
     [[nodiscard]] bool submit(const FrameView& frame);
     [[nodiscard]] bool submit(const IndexedFrameView& frame);

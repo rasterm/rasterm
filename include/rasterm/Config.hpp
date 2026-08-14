@@ -6,6 +6,7 @@
 #include <rasterm/Capabilities.hpp>
 #include <rasterm/Color.hpp>
 #include <rasterm/Events.hpp>
+#include <rasterm/defaults.h>
 
 #include <cstddef>
 
@@ -26,22 +27,23 @@ struct TerminalOverrides {
 };
 
 struct EncoderTuning {
-    bool persistPaletteRegisters = true;
-    int paletteRefreshFrames = 120;
-    std::size_t outputChunkBytes = 64 * 1024;
-    int maximumThreads = 0;
-    bool independentRegionQuantization = true;
+    bool persistPaletteRegisters = RASTERM_DEFAULT_PERSIST_PALETTE_REGISTERS != 0;
+    int paletteRefreshFrames = RASTERM_DEFAULT_PALETTE_REFRESH_FRAMES;
+    std::size_t outputChunkBytes = RASTERM_DEFAULT_OUTPUT_CHUNK_BYTES;
+    int maximumThreads = RASTERM_DEFAULT_MAXIMUM_ENCODER_THREADS;
+    bool independentRegionQuantization =
+        RASTERM_DEFAULT_INDEPENDENT_REGION_QUANTIZATION != 0;
 };
 
 struct EngineOptions {
-    QualityProfile quality = QualityProfile::Realtime;
-    bool useAlternateScreen = false;
-    bool preserveCursor = true;
-    bool enableDirtyRegions = false;
-    bool requireSixelSupport = false;
-    bool useSynchronizedOutput = true;
-    std::size_t maximumOutputBytes = 0;
-    double backpressureThresholdMilliseconds = 12.0;
+    QualityProfile quality = static_cast<QualityProfile>(RASTERM_DEFAULT_QUALITY);
+    bool useAlternateScreen = RASTERM_DEFAULT_USE_ALTERNATE_SCREEN != 0;
+    bool preserveCursor = RASTERM_DEFAULT_PRESERVE_CURSOR != 0;
+    bool enableDirtyRegions = RASTERM_DEFAULT_ENABLE_DIRTY_REGIONS != 0;
+    bool requireSixelSupport = RASTERM_DEFAULT_REQUIRE_SIXEL_SUPPORT != 0;
+    bool useSynchronizedOutput = RASTERM_DEFAULT_USE_SYNCHRONIZED_OUTPUT != 0;
+    std::size_t maximumOutputBytes = RASTERM_DEFAULT_MAXIMUM_OUTPUT_BYTES;
+    double backpressureThresholdMilliseconds = RASTERM_DEFAULT_BACKPRESSURE_MILLISECONDS;
     ColorOptions color{};
     DiagnosticOptions diagnostics{};
     EventOptions events{};
@@ -52,7 +54,7 @@ struct EngineOptions {
 
 struct PresenterOptions {
     EngineOptions engine{};
-    double maximumFramesPerSecond = 0.0;
+    double maximumFramesPerSecond = RASTERM_DEFAULT_MAXIMUM_FRAMES_PER_SECOND;
 };
 
 }

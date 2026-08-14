@@ -2,8 +2,8 @@
 
 #pragma once
 
+#include <rasterm/Buffer.hpp>
 #include <rasterm/Geometry.hpp>
-#include <rasterm/IndexedFrame.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -38,6 +38,13 @@ struct ScaleLayout {
     Rect destination{};
     Extent canvas{};
 };
+
+/* returns an owned, tightly packed RGB24 canvas. invalid frames, bounds, options,
+   or layouts return an empty frame. source damage is intentionally discarded because
+   resampling changes its coordinate space. */
+
+[[nodiscard]] OwnedFrame scaleFrame(const FrameView& frame, Extent bounds,
+                                    const ImageOptions& options = {});
 
 [[nodiscard]] inline ScaleLayout calculateScaleLayout(const Extent source,
                                                        const Extent bounds,

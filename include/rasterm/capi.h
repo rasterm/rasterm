@@ -6,6 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <rasterm/defaults.h>
+
 /* define RASTERM_SHARED_LIBRARY when consuming the optional shared C ABI. */
 
 #if defined(_WIN32) && defined(RASTERM_SHARED_LIBRARY)
@@ -123,8 +125,8 @@ typedef enum rasterm_dither_mode {
 
 /* callbacks are invoked synchronously by Engine or on Presenter's worker.
  * the byte span is borrowed for the duration of the callback only. a nonzero
- * return accepts every byte so zero means no byte was accepted and reports a
- * stable output failure. do not destroy or shut down the active handle here. */
+ * return accepts every byte, so zero means no byte was accepted and reports a
+ * stable output failure. Do not destroy or shut down the active handle here. */
 
 typedef int32_t (RASTERM_CALL *rasterm_write_callback)(void* context, const char* bytes, size_t size);
 typedef int32_t (RASTERM_CALL *rasterm_flush_callback)(void* context);

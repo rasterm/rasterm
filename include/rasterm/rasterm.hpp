@@ -21,3 +21,4 @@
 #include <rasterm/Presenter.hpp>
 #include <rasterm/Statistics.hpp>
 #include <rasterm/Version.hpp>
+#include <rasterm/defaults.h>

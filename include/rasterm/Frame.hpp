@@ -19,6 +19,26 @@ struct FrameView {
     PixelFormat format = PixelFormat::RGB24;
     FrameMetadata metadata{};
 
+    [[nodiscard]] static constexpr FrameView tightlyPacked(
+        const std::uint8_t* pixels, const int frameWidth, const int frameHeight,
+        const PixelFormat pixelFormat, const FrameMetadata frameMetadata = {}) noexcept
+    {
+        const int pixelBytes = bytesPerPixel(pixelFormat);
+        constexpr auto maximum = (std::numeric_limits<std::ptrdiff_t>::max)();
+        if (pixels == nullptr || frameWidth <= 0 || frameHeight <= 0 || pixelBytes == 0 ||
+            frameWidth > maximum / pixelBytes) {
+            return {};
+        }
+        return {
+            pixels,
+            frameWidth,
+            frameHeight,
+            static_cast<std::ptrdiff_t>(frameWidth) * pixelBytes,
+            pixelFormat,
+            frameMetadata,
+        };
+    }
+
     [[nodiscard]] bool isValid() const noexcept
     {
         const int pixelBytes = bytesPerPixel(format);

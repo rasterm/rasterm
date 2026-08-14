@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <rasterm/defaults.h>
+
 #include <cstdint>
 
 namespace rasterm {
@@ -18,17 +20,17 @@ struct ColorMetadata {
     TransferFunction transfer = TransferFunction::Srgb;
     MatrixCoefficients matrix = MatrixCoefficients::Identity;
     ColorRange range = ColorRange::Full;
-    float referenceWhiteNits = 203.0f;
-    float masteringPeakNits = 1000.0f;
+    float referenceWhiteNits = RASTERM_DEFAULT_REFERENCE_WHITE_NITS;
+    float masteringPeakNits = RASTERM_DEFAULT_MASTERING_PEAK_NITS;
 };
 
 struct ColorOptions {
-    bool convertToSrgb = true;
-    ToneMapOperator toneMap = ToneMapOperator::Aces;
-    float outputPeakNits = 203.0f;
-    DitherMode realtimeDither = DitherMode::None;
-    int adaptivePaletteLockFrames = 12;
-    float sceneCutThreshold = 0.30f;
+    bool convertToSrgb = RASTERM_DEFAULT_CONVERT_TO_SRGB != 0;
+    ToneMapOperator toneMap = static_cast<ToneMapOperator>(RASTERM_DEFAULT_TONE_MAP);
+    float outputPeakNits = RASTERM_DEFAULT_OUTPUT_PEAK_NITS;
+    DitherMode realtimeDither = static_cast<DitherMode>(RASTERM_DEFAULT_REALTIME_DITHER);
+    int adaptivePaletteLockFrames = RASTERM_DEFAULT_ADAPTIVE_PALETTE_LOCK_FRAMES;
+    float sceneCutThreshold = RASTERM_DEFAULT_SCENE_CUT_THRESHOLD;
 };
 
 }

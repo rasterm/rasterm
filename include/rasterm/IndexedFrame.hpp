@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <span>
 
 namespace rasterm {
 
@@ -22,6 +23,12 @@ struct PaletteView {
     const RgbColor* colors = nullptr;
     std::size_t size = 0;
 
+    [[nodiscard]] static constexpr PaletteView from(
+        const std::span<const RgbColor> palette) noexcept
+    {
+        return { palette.data(), palette.size() };
+    }
+
     [[nodiscard]] bool isValid() const noexcept
     {
         return colors != nullptr && size > 0 && size <= 256;
@@ -35,6 +42,14 @@ struct IndexedFrameView {
     std::ptrdiff_t stride = 0;
     PaletteView palette{};
     FrameMetadata metadata{};
+
+    [[nodiscard]] static constexpr IndexedFrameView tightlyPacked(
+        const std::uint8_t* pixels, const int frameWidth, const int frameHeight,
+        const PaletteView framePalette, const FrameMetadata frameMetadata = {}) noexcept
+    {
+        if (pixels == nullptr || frameWidth <= 0 || frameHeight <= 0) return {};
+        return { pixels, frameWidth, frameHeight, frameWidth, framePalette, frameMetadata };
+    }
 
     [[nodiscard]] bool isValid() const noexcept
     {
