@@ -207,8 +207,8 @@ void defaultColor(rasterm_color_metadata& color, const bool source) noexcept
     color.transfer = source ? RASTERM_TRANSFER_UNSPECIFIED : RASTERM_TRANSFER_SRGB;
     color.matrix = source ? RASTERM_MATRIX_UNSPECIFIED : RASTERM_MATRIX_IDENTITY;
     color.range = source ? RASTERM_RANGE_UNSPECIFIED : RASTERM_RANGE_FULL;
-    color.reference_white_nits = 203.0f;
-    color.mastering_peak_nits = 1000.0f;
+    color.reference_white_nits = RASTERM_DEFAULT_REFERENCE_WHITE_NITS;
+    color.mastering_peak_nits = RASTERM_DEFAULT_MASTERING_PEAK_NITS;
 }
 
 void defaultMetadata(rasterm_frame_metadata& metadata) noexcept
@@ -395,20 +395,26 @@ void rasterm_engine_options_init(rasterm_engine_options* options)
     std::memset(options, 0, sizeof(*options));
     options->struct_size = sizeof(*options);
     options->api_version = RASTERM_C_API_VERSION;
-    options->quality = RASTERM_QUALITY_REALTIME;
-    options->preserve_cursor = 1;
-    options->use_synchronized_output = 1;
-    options->backpressure_threshold_milliseconds = 12.0;
-    options->convert_to_srgb = 1;
-    options->tone_map = RASTERM_TONE_MAP_ACES;
-    options->output_peak_nits = 203.0f;
-    options->realtime_dither = RASTERM_DITHER_NONE;
-    options->adaptive_palette_lock_frames = 12;
-    options->scene_cut_threshold = 0.30f;
-    options->persist_palette_registers = 1;
-    options->palette_refresh_frames = 120;
-    options->output_chunk_bytes = 64 * 1024;
-    options->independent_region_quantization = 1;
+    options->quality = RASTERM_DEFAULT_QUALITY;
+    options->use_alternate_screen = RASTERM_DEFAULT_USE_ALTERNATE_SCREEN;
+    options->preserve_cursor = RASTERM_DEFAULT_PRESERVE_CURSOR;
+    options->enable_dirty_regions = RASTERM_DEFAULT_ENABLE_DIRTY_REGIONS;
+    options->require_sixel_support = RASTERM_DEFAULT_REQUIRE_SIXEL_SUPPORT;
+    options->use_synchronized_output = RASTERM_DEFAULT_USE_SYNCHRONIZED_OUTPUT;
+    options->maximum_output_bytes = RASTERM_DEFAULT_MAXIMUM_OUTPUT_BYTES;
+    options->backpressure_threshold_milliseconds = RASTERM_DEFAULT_BACKPRESSURE_MILLISECONDS;
+    options->convert_to_srgb = RASTERM_DEFAULT_CONVERT_TO_SRGB;
+    options->tone_map = RASTERM_DEFAULT_TONE_MAP;
+    options->output_peak_nits = RASTERM_DEFAULT_OUTPUT_PEAK_NITS;
+    options->realtime_dither = RASTERM_DEFAULT_REALTIME_DITHER;
+    options->adaptive_palette_lock_frames = RASTERM_DEFAULT_ADAPTIVE_PALETTE_LOCK_FRAMES;
+    options->scene_cut_threshold = RASTERM_DEFAULT_SCENE_CUT_THRESHOLD;
+    options->persist_palette_registers = RASTERM_DEFAULT_PERSIST_PALETTE_REGISTERS;
+    options->palette_refresh_frames = RASTERM_DEFAULT_PALETTE_REFRESH_FRAMES;
+    options->output_chunk_bytes = RASTERM_DEFAULT_OUTPUT_CHUNK_BYTES;
+    options->maximum_encoder_threads = RASTERM_DEFAULT_MAXIMUM_ENCODER_THREADS;
+    options->independent_region_quantization =
+        RASTERM_DEFAULT_INDEPENDENT_REGION_QUANTIZATION;
 }
 
 void rasterm_frame_init(rasterm_frame* frame)
